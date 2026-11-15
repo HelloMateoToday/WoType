@@ -1,0 +1,5 @@
+/* 输入法菜单、系统设置的输入法列表里显示的名字 */
+"CFBundleName" = "WoType";
+"CFBundleDisplayName" = "WoType";
+"com.acme.inputmethod.WoType" = "WoType";
+"com.acme.inputmethod.WoType.pinyin" = "WoType 拼音";

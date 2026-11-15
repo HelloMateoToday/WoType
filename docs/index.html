@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WoType · 打字、说话、翻译，一个输入法就够</title>
+<meta name="description" content="WoType 是开源、免费的 macOS 原生输入法：整句拼音、按住说话边说边出字、候选翻译和划词翻译。打字全在本机，不收集数据。">
+<meta property="og:title" content="WoType · 打字、说话、翻译，一个输入法就够">
+<meta property="og:description" content="开源、免费的 macOS 原生拼音输入法，带语音输入和翻译。">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://hellomateotoday.github.io/WoType/">
+<meta property="og:image" content="https://hellomateotoday.github.io/WoType/assets/og.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" type="image/png" href="assets/favicon.png">
+<link rel="apple-touch-icon" href="assets/icon.png">
+<link rel="stylesheet" href="style.css">
+<style>
+  /* Tailwind 还没生成样式时先给底色，减轻首屏闪一下 */
+  html { background: #ffffff; color: #1d1d1f; scroll-behavior: smooth; scroll-padding-top: 64px; }
+  @media (prefers-color-scheme: dark) { html { background: #0a0a0a; color: #f2f2f7; } }
+</style>
+<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.3.3"></script>
+<style type="text/tailwindcss">
+  @theme {
+    --color-brand: #0eaf76;
+    --color-brand-dark: #0a8a5d;
+    --font-sans: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", sans-serif;
+  }
+  @layer components {
+    .section { @apply mx-auto max-w-6xl px-4 sm:px-6; }
+    .eyebrow { @apply text-sm font-semibold text-brand; }
+    .heading { @apply mt-2 text-3xl font-bold tracking-tight sm:text-4xl; }
+    .lead { @apply mt-4 max-w-2xl text-lg text-neutral-600 dark:text-neutral-400; }
+    .card { @apply rounded-3xl bg-white p-6 ring-1 ring-neutral-200/80 sm:p-7 dark:bg-neutral-900 dark:ring-white/10; }
+    .card-title { @apply text-lg font-semibold; }
+    .card-text { @apply mt-1.5 text-neutral-600 dark:text-neutral-400; }
+    .kbd { @apply inline-flex min-w-6 items-center justify-center rounded-md bg-neutral-100 px-1.5 font-sans text-[0.9em] font-medium text-neutral-800 ring-1 ring-neutral-300 dark:bg-white/10 dark:text-neutral-100 dark:ring-white/15; }
+    .code { @apply rounded bg-neutral-200/70 px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/10; }
+    .link { @apply font-medium text-brand underline-offset-4 hover:underline; }
+    .btn-primary { @apply inline-flex h-12 items-center gap-2 rounded-full bg-brand px-7 text-base font-semibold text-white shadow-lg shadow-brand/25 transition hover:bg-brand-dark; }
+  }
+</style>
+</head>
+<body class="bg-white text-neutral-900 antialiased dark:bg-neutral-950 dark:text-neutral-100">
+
+<header class="sticky top-0 z-50 border-b border-neutral-200/70 bg-white/80 backdrop-blur-xl dark:border-white/10 dark:bg-neutral-950/80">
+  <nav class="section flex h-14 items-center justify-between">
+    <a href="#" class="flex items-center gap-2 font-semibold">
+      <img src="assets/icon.png" alt="" class="size-7 rounded-md">
+      WoType
+    </a>
+    <div class="flex items-center gap-6 text-sm text-neutral-600 dark:text-neutral-400">
+      <a href="#features" class="hidden hover:text-neutral-900 sm:inline dark:hover:text-white">功能</a>
+      <a href="#install" class="hidden hover:text-neutral-900 sm:inline dark:hover:text-white">安装</a>
+      <a href="#faq" class="hidden hover:text-neutral-900 sm:inline dark:hover:text-white">常见问题</a>
+      <a href="https://github.com/HelloMateoToday/WoType" class="rounded-full bg-neutral-900 px-3.5 py-1.5 font-medium text-white hover:bg-neutral-700 dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-200">GitHub</a>
+    </div>
+  </nav>
+</header>
+
+<main>
+  <!-- 首屏 -->
+  <section class="relative overflow-hidden">
+    <div class="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[640px] bg-[radial-gradient(60%_50%_at_50%_0%,rgba(14,175,118,0.16),transparent)]"></div>
+    <div class="section pt-16 pb-20 text-center sm:pt-24 sm:pb-28">
+      <img src="assets/icon.png" alt="WoType 图标" class="mx-auto size-20 rounded-[22px] shadow-lg shadow-brand/20 sm:size-24">
+      <h1 class="mt-8 text-4xl font-bold tracking-tight sm:text-6xl">打字、说话、翻译，<br class="sm:hidden">一个输入法就够</h1>
+      <p class="mx-auto mt-5 max-w-xl text-lg text-neutral-600 sm:text-xl dark:text-neutral-400"><span class="block sm:inline">macOS 原生拼音输入法</span><span class="hidden sm:inline"> · </span>按住说话 · 免费开源</p>
+      <div class="mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row">
+        <a data-download href="https://github.com/HelloMateoToday/WoType/releases" class="btn-primary">
+          <svg viewBox="0 0 24 24" class="size-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11m-5-5 5 5 5-5M5 20h14"/></svg>
+          <span data-download-label>下载 WoType</span>
+        </a>
+        <a href="https://github.com/HelloMateoToday/WoType" class="inline-flex h-12 items-center rounded-full px-7 text-base font-semibold text-neutral-700 ring-1 ring-neutral-300 transition hover:bg-neutral-100 dark:text-neutral-200 dark:ring-white/20 dark:hover:bg-white/10">在 GitHub 查看源码</a>
+      </div>
+      <p class="mt-4 text-sm text-neutral-500">macOS 14+ · Apple 芯片 · AGPL-3.0</p>
+      <div class="mx-auto mt-14 max-w-3xl">
+        <div data-demo="hero"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 打字 -->
+  <section id="features" class="border-t border-neutral-200/70 bg-neutral-50 py-20 sm:py-28 dark:border-white/10 dark:bg-neutral-900/40">
+    <div class="section">
+      <p class="eyebrow">打字</p>
+      <h2 class="heading">打得快，也打得准</h2>
+      <div class="mt-12 grid gap-6 lg:grid-cols-2">
+        <article class="card">
+          <h3 class="card-title">整句输入</h3>
+          <p class="card-text">一口气打完一整句，只打声母也行。</p>
+          <div class="mt-6" data-demo="sentence"></div>
+        </article>
+        <article class="card">
+          <h3 class="card-title">按错键也能认出来</h3>
+          <p class="card-text">打成 <code class="code">zhognguo</code>，照样出「中国」。</p>
+          <div class="mt-6" data-demo="typo"></div>
+        </article>
+        <article class="card">
+          <h3 class="card-title">打英文不用切换</h3>
+          <p class="card-text">直接打 <code class="code">github</code>，候选里就有 GitHub。</p>
+          <div class="mt-6" data-demo="english"></div>
+        </article>
+        <article class="card">
+          <h3 class="card-title">长句分段选</h3>
+          <p class="card-text">先选开头的词，剩下的接着选。</p>
+          <div class="mt-6" data-demo="split"></div>
+        </article>
+        <article class="card">
+          <h3 class="card-title">打字推荐 emoji</h3>
+          <p class="card-text">打「开心」，候选里跟着出 😄。</p>
+          <div class="mt-6" data-demo="emoji"></div>
+        </article>
+        <article class="card">
+          <h3 class="card-title">中英切换</h3>
+          <p class="card-text">单按 <kbd class="kbd">⇧</kbd> 切换，已经打的字母原样上屏。</p>
+          <div class="mt-6" data-demo="shift"></div>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- 语音 -->
+  <section class="py-20 sm:py-28">
+    <div class="section grid items-center gap-12 lg:grid-cols-[5fr_7fr] lg:gap-16">
+      <div>
+        <p class="eyebrow">语音输入</p>
+        <h2 class="heading">按住说话，松开就上屏</h2>
+        <p class="lead">按住 <kbd class="kbd">右 ⌘</kbd> 说话，边说边出字，口头禅自动清掉。</p>
+      </div>
+      <div data-demo="voice"></div>
+    </div>
+  </section>
+
+  <!-- 翻译 -->
+  <section class="bg-neutral-50 py-20 sm:py-28 dark:bg-neutral-900/40">
+    <div class="section">
+      <p class="eyebrow">翻译</p>
+      <h2 class="heading">写中文，发英文</h2>
+      <div class="mt-12 grid gap-6 lg:grid-cols-3">
+        <article class="card">
+          <h3 class="card-title">候选翻译</h3>
+          <p class="card-text">单按 <kbd class="kbd">⌃</kbd> 翻译候选。</p>
+          <div class="mt-6" data-demo="candidateTranslation"></div>
+        </article>
+        <article class="card">
+          <h3 class="card-title">语音翻译</h3>
+          <p class="card-text">按住 <kbd class="kbd">右 ⌥</kbd> 说中文，输入英文。</p>
+          <div class="mt-6" data-demo="voiceTranslation"></div>
+        </article>
+        <article class="card">
+          <h3 class="card-title">划词翻译</h3>
+          <p class="card-text">选中文字，按 <kbd class="kbd">⌃⌥T</kbd> 看译文。</p>
+          <div class="mt-6" data-demo="selection"></div>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- 视频 -->
+  <section class="py-20 text-center sm:py-28">
+    <div class="section">
+      <h2 class="heading">一分钟看完所有功能</h2>
+      <video class="mx-auto mt-10 w-full max-w-4xl rounded-2xl shadow-2xl ring-1 ring-black/5 dark:ring-white/10" controls preload="metadata" playsinline src="assets/demo.mp4#t=2.4"></video>
+    </div>
+  </section>
+
+  <!-- 隐私和识别方式 -->
+  <section class="bg-neutral-50 py-20 sm:py-28 dark:bg-neutral-900/40">
+    <div class="section">
+      <p class="eyebrow">隐私</p>
+      <h2 class="heading">打字全在本机</h2>
+      <div class="mt-12 grid gap-6 md:grid-cols-3">
+        <div class="card">
+          <h3 class="card-title">不收集数据</h3>
+          <p class="card-text">没有自己的服务器，打字和学到的词都只在你的 Mac 上。</p>
+        </div>
+        <div class="card">
+          <h3 class="card-title">语音可以不出电脑</h3>
+          <p class="card-text">用本机模型识别；也可以选云端识别或免费体验渠道。</p>
+        </div>
+        <div class="card">
+          <h3 class="card-title">代码全部公开</h3>
+          <p class="card-text">以 AGPL-3.0 开源，可以自己审查和编译。</p>
+        </div>
+      </div>
+      <p class="mt-6 text-sm leading-relaxed text-neutral-500">
+        免费体验渠道（豆包、微信、千问输入法）调用的是这些输入法客户端的内部接口，不是官方开放接口，录音会发给对应厂商，随时可能失效，仅供体验；协议参考了 <a href="https://github.com/zcyoung2000/Setem" class="underline underline-offset-2">Setem</a>。WoType 与这些厂商无关，使用风险自负。<a href="https://github.com/HelloMateoToday/WoType#语音识别方式" class="link">完整说明</a>
+      </p>
+    </div>
+  </section>
+
+  <!-- 安装 -->
+  <section id="install" class="py-20 sm:py-28">
+    <div class="section">
+      <p class="eyebrow">安装</p>
+      <h2 class="heading">三步装好</h2>
+      <ol class="mt-12 grid gap-6 md:grid-cols-3">
+        <li class="card">
+          <span class="flex size-8 items-center justify-center rounded-full bg-brand text-sm font-bold text-white">1</span>
+          <h3 class="mt-4 card-title">下载 DMG</h3>
+          <p class="card-text"><a data-download href="https://github.com/HelloMateoToday/WoType/releases" class="link"><span data-download-label>下载 WoType</span></a>，需要 macOS 14+、Apple 芯片。</p>
+        </li>
+        <li class="card">
+          <span class="flex size-8 items-center justify-center rounded-full bg-brand text-sm font-bold text-white">2</span>
+          <h3 class="mt-4 card-title">运行安装器</h3>
+          <p class="card-text">双击「安装 WoType.app」，点「安装」。</p>
+        </li>
+        <li class="card">
+          <span class="flex size-8 items-center justify-center rounded-full bg-brand text-sm font-bold text-white">3</span>
+          <h3 class="mt-4 card-title">添加输入法</h3>
+          <p class="card-text">照安装器里的动画，在系统设置里添加 WoType。</p>
+        </li>
+      </ol>
+      <div class="mt-6 card">
+        <p class="text-neutral-600 dark:text-neutral-400">提示「无法验证开发者」时，先在终端执行：</p>
+        <div class="mt-3 flex items-center gap-3 rounded-2xl bg-neutral-900 py-3 pr-3 pl-5 text-neutral-100 dark:bg-black">
+          <code class="flex-1 overflow-x-auto font-mono text-sm whitespace-nowrap" id="xattr">xattr -dr com.apple.quarantine ~/Downloads/WoType-*.dmg</code>
+          <button type="button" data-copy="xattr" class="flex-none rounded-lg bg-white/10 px-3 py-1.5 text-sm font-medium hover:bg-white/20">复制</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 常见问题 -->
+  <section id="faq" class="bg-neutral-50 py-20 sm:py-28 dark:bg-neutral-900/40">
+    <div class="section max-w-3xl">
+      <h2 class="heading">常见问题</h2>
+      <div class="mt-8 divide-y divide-neutral-200 dark:divide-white/10">
+        <details class="group py-5">
+          <summary class="flex cursor-pointer list-none items-center justify-between gap-4 text-lg font-medium">Intel 芯片的 Mac 能用吗？<span class="text-neutral-400 transition group-open:rotate-45">＋</span></summary>
+          <p class="card-text">安装包只支持 Apple 芯片。Intel Mac 可以改编译设置，从源码自行打包；本机语音模型只能在 Apple 芯片上运行。</p>
+        </details>
+        <details class="group py-5">
+          <summary class="flex cursor-pointer list-none items-center justify-between gap-4 text-lg font-medium">要给哪些权限？<span class="text-neutral-400 transition group-open:rotate-45">＋</span></summary>
+          <p class="card-text">打字不需要。语音要麦克风，划词翻译要辅助功能。</p>
+        </details>
+        <details class="group py-5">
+          <summary class="flex cursor-pointer list-none items-center justify-between gap-4 text-lg font-medium">收费吗？<span class="text-neutral-400 transition group-open:rotate-45">＋</span></summary>
+          <p class="card-text">免费开源。用云端模型时，费用由你和服务商结算。</p>
+        </details>
+        <details class="group py-5">
+          <summary class="flex cursor-pointer list-none items-center justify-between gap-4 text-lg font-medium">怎么卸载？<span class="text-neutral-400 transition group-open:rotate-45">＋</span></summary>
+          <p class="card-text">打开「安装 WoType.app」点「卸载」，再在系统设置里把 WoType 从输入法列表移除。</p>
+        </details>
+        <details class="group py-5">
+          <summary class="flex cursor-pointer list-none items-center justify-between gap-4 text-lg font-medium">用到了哪些开源项目？<span class="text-neutral-400 transition group-open:rotate-45">＋</span></summary>
+          <p class="card-text">语音输入移植自 Arion，拼音引擎来自水杉输入法和 librime + 万象拼音，等等。完整清单见 <a href="https://github.com/HelloMateoToday/WoType#致谢" class="link">README</a>。</p>
+        </details>
+      </div>
+    </div>
+  </section>
+
+  <!-- 结尾 -->
+  <section class="relative overflow-hidden py-20 text-center sm:py-28">
+    <div class="pointer-events-none absolute inset-x-0 bottom-0 -z-10 h-[420px] bg-[radial-gradient(60%_60%_at_50%_100%,rgba(14,175,118,0.14),transparent)]"></div>
+    <div class="section">
+      <h2 class="text-3xl font-bold tracking-tight sm:text-4xl">现在就试试 WoType</h2>
+      <a data-download href="https://github.com/HelloMateoToday/WoType/releases" class="btn-primary mt-8">
+        <svg viewBox="0 0 24 24" class="size-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11m-5-5 5 5 5-5M5 20h14"/></svg>
+        <span data-download-label>下载 WoType</span>
+      </a>
+    </div>
+  </section>
+</main>
+
+<footer class="border-t border-neutral-200/70 py-8 text-sm text-neutral-500 dark:border-white/10">
+  <div class="section flex flex-col items-center justify-between gap-3 sm:flex-row">
+    <p>© 2026 HelloMateoToday · <a href="https://github.com/HelloMateoToday/WoType/blob/main/LICENSE" class="hover:text-neutral-900 dark:hover:text-white">AGPL-3.0</a></p>
+    <div class="flex gap-5">
+      <a href="https://github.com/HelloMateoToday/WoType/releases" class="hover:text-neutral-900 dark:hover:text-white">版本发布</a>
+      <a href="https://github.com/HelloMateoToday/WoType/issues" class="hover:text-neutral-900 dark:hover:text-white">反馈问题</a>
+      <a href="https://github.com/HelloMateoToday/WoType" class="hover:text-neutral-900 dark:hover:text-white">GitHub</a>
+    </div>
+  </div>
+</footer>
+
+<script type="module" src="js/demo.js"></script>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,114 @@
+# 打包发布：推送 v 开头的标签（如 v0.2.0）时，在 GitHub 的 Mac 虚拟机上打 DMG，创建 Release 并上传。
+#
+#   git tag v0.2.0 && git push origin v0.2.0
+#
+# - 标签的版本号要和 Xcode 工程的 MARKETING_VERSION 一样（App 的「检查更新」拿两者比较），不一样就停下
+# - 在 Actions 页面手动运行（Run workflow）：只打包，检查能不能编译成功，不发布、不上传任何文件
+# - 签名：虚拟机上没有证书，make-installer.sh 自动用临时签名（ad-hoc），用户下载后要用 xattr 去掉隔离属性
+# - 不上传 artifacts、不用缓存：DMG 直接传到 Release，虚拟机用完整个销毁，不占仓库的存储
+name: 打包发布
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write   # 创建 Release
+  actions: write    # 删掉这次运行的 artifacts
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash --noprofile --norc -euo pipefail {0}
+
+jobs:
+  build:
+    # Apple 芯片的虚拟机。VoiceService、安装器要 Swift 6.2，要 Xcode 26 以上
+    runs-on: macos-26
+    timeout-minutes: 120
+    env:
+      RELEASE: ${{ startsWith(github.ref, 'refs/tags/v') }}
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: 选 Xcode（最新的正式版）
+        run: |
+          ls -d /Applications/Xcode*.app
+          xcode=$(ls -d /Applications/Xcode_*.app | grep -E '/Xcode_[0-9.]+\.app$' | sort -V | tail -1)
+          sudo xcode-select -s "$xcode"
+          xcodebuild -version
+
+      - name: 检查版本号
+        run: |
+          version=$(xcodebuild -project WoType/WoType.xcodeproj -target WoType -configuration Release -showBuildSettings 2>/dev/null \
+            | awk -F' = ' '/ MARKETING_VERSION = /{print $2; exit}')
+          echo "工程版本号：${version}"
+          echo "VERSION=${version}" >> "$GITHUB_ENV"
+          if [[ "$RELEASE" == true && "${GITHUB_REF_NAME#v}" != "$version" ]]; then
+            echo "::error::标签 ${GITHUB_REF_NAME} 和工程版本号 ${version} 不一样：先改 MARKETING_VERSION，或者打 v${version} 的标签"
+            exit 1
+          fi
+
+      - name: 准备 Metal 工具链和 Rust
+        run: |
+          # 语音服务的 MLX 着色器要用 Metal 工具链编译
+          xcodebuild -downloadComponent MetalToolchain
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustc --version
+
+      - name: 打包
+        run: ./scripts/make-installer.sh
+
+      - name: 创建 Release
+        if: env.RELEASE == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          dmg=$(ls build/Installer/WoType-*.dmg)
+          name=$(basename "$dmg")
+          sha=$(shasum -a 256 "$dmg" | cut -d' ' -f1)
+          cat > notes.md <<EOF
+          ## 下载
+
+          下载下面的 **${name}**，打开后双击「安装 WoType.app」。
+
+          需要 macOS 14 或更新、Apple 芯片（M 系列）的 Mac。
+
+          ## 安装
+
+          1. 这个安装包没有用开发者证书签名。打开前先在终端去掉隔离属性，不然会提示「无法验证开发者」：
+
+             \`\`\`sh
+             xattr -dr com.apple.quarantine ~/Downloads/${name}
+             \`\`\`
+
+          2. 打开 DMG，双击「安装 WoType.app」，点「安装」。
+          3. 照着安装器里的动画，到「系统设置 › 键盘 › 输入法 › 编辑… › ＋ › 简体中文」里添加 WoType。
+
+          已经装过的，直接用安装器覆盖安装，词库和设置都保留。更新后麦克风、辅助功能权限要重新授权。
+
+          更多说明见[官网](https://hellomateotoday.github.io/WoType/)和 [README](https://github.com/${GITHUB_REPOSITORY}#安装)。
+
+          ---
+
+          SHA-256：\`${sha}\`
+          EOF
+          gh release create "$GITHUB_REF_NAME" "$dmg" --title "WoType ${VERSION}" --notes-file notes.md
+
+      - name: 清理
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # 本来就不上传 artifacts；保险起见，把这次运行留下的都删掉
+          for id in $(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts" --jq '.artifacts[].id'); do
+            gh api -X DELETE "repos/${GITHUB_REPOSITORY}/actions/artifacts/${id}"
+          done
+          # 编译产物在虚拟机上，任务结束整个销毁；这里先删掉，日志里看得到清理过
+          rm -rf build data engine/target

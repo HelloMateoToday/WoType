@@ -1,0 +1,4 @@
+# Swift Package 的编译产物
+.build/
+.swiftpm/
+Package.resolved

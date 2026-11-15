@@ -1,0 +1,23 @@
+# macOS
+.DS_Store
+
+# Xcode
+xcuserdata/
+*.xcuserstate
+DerivedData/
+
+# Swift Package Manager
+.build/
+.swiftpm/
+
+# Rust
+target/
+**/*.rs.bk
+
+# 编译、打包产物和脚本下载的数据（scripts/build-*.sh、fetch-*.sh、make-installer.sh 生成）
+/build/
+/data/
+
+# 测试覆盖率、词库缓存
+*.profraw
+*.wcache

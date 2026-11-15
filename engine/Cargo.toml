@@ -1,0 +1,16 @@
+[workspace]
+resolver = "2"
+members = ["core"]
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = "debuginfo"
+
+# 只给测试用（cargo test --profile fast-test）：和 release 一样开优化（完整词库的用例不会太慢），
+# 去掉 LTO、多个代码生成单元并行、增量编译，改一处后重编快得多。App 照旧用 release。
+[profile.fast-test]
+inherits = "release"
+lto = false
+codegen-units = 16
+incremental = true

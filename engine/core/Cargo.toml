@@ -1,0 +1,92 @@
+[package]
+name = "wotype-core"
+version = "0.3.6"
+edition = "2021"
+rust-version = "1.80"
+description = "WoType 的 Rust 核心：语音输入的润色规则，并链进水杉输入法的宿主层；旧的万象拼音引擎在 wanxiang 特性后面"
+license = "AGPL-3.0-only"
+
+[lib]
+name = "wotype_core"
+crate-type = ["rlib", "cdylib", "staticlib"]
+
+[[bin]]
+name = "wotype-demo"
+path = "src/bin/demo.rs"
+required-features = ["wanxiang"]
+
+[[bin]]
+name = "wotype-bench"
+path = "src/bin/bench.rs"
+required-features = ["wanxiang"]
+
+[[bin]]
+name = "wotype-eval"
+path = "src/bin/eval.rs"
+required-features = ["wanxiang"]
+
+[[bin]]
+name = "wotype-check"
+path = "src/bin/check.rs"
+required-features = ["wanxiang"]
+
+[[bin]]
+name = "wotype-train"
+path = "src/bin/train.rs"
+required-features = ["wanxiang"]
+
+[[bin]]
+name = "wotype-show"
+path = "src/bin/show.rs"
+required-features = ["wanxiang"]
+
+[[bin]]
+name = "wotype-lmbuild"
+path = "src/bin/lmbuild.rs"
+required-features = ["wanxiang"]
+
+[[bin]]
+name = "wotype-probe"
+path = "src/bin/probe.rs"
+required-features = ["wanxiang"]
+
+[dependencies]
+# 旧的万象引擎（docs/15，wanxiang 特性）
+anyhow = { version = "1.0", optional = true }
+# 语法模型（.gram，几百 MB）用内存映射读
+memmap2 = { version = "0.9", optional = true }
+# 语音润色的规则（照 Arion 的 Go 正则移植，Go 和 regex 都是 RE2 的写法）
+regex = "1"
+# 水杉输入法的宿主层（拼音引擎、神经重排、标点、联想等），msime_client_* C 接口随本库的静态库导出。
+# 锁定 commit，升级见 docs/12。GPL-3.0-only，和 WoType 的 AGPL-3.0-only 可以合并分发。
+msime-host-api = { git = "https://github.com/metasequoiaime/msime.git", rev = "6de43c05d45c426421f39f536818c52719527e8a" }
+
+[features]
+default = []
+# 旧的万象拼音引擎（docs/15）：2026-11-15 起「万象」改用 librime（docs/22），默认不编译，代码留着方便恢复。
+# 跑它的测试、工具：cargo test --features wanxiang …
+wanxiang = ["dep:anyhow", "dep:memmap2"]
+
+[[test]]
+name = "combinations"
+required-features = ["wanxiang"]
+
+[[test]]
+name = "fuzzy_rules"
+required-features = ["wanxiang"]
+
+[[test]]
+name = "grid_layout"
+required-features = ["wanxiang"]
+
+[[test]]
+name = "input_session"
+required-features = ["wanxiang"]
+
+[[test]]
+name = "ranking"
+required-features = ["wanxiang"]
+
+[[test]]
+name = "session"
+required-features = ["wanxiang"]

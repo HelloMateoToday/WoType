@@ -1,0 +1,166 @@
+WoType for macOS
+Copyright (C) 2026 HelloMateoToday
+
+This program is free software: you can redistribute it and/or modify it under
+the terms of the GNU Affero General Public License, version 3 only, as
+published by the Free Software Foundation. See LICENSE.
+
+It is distributed WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+WoType for macOS contains or is derived from the following works. Each keeps
+its own copyright and license; where a license requires the notice or the
+license text to travel with the work, it is reproduced or linked here.
+
+--------------------------------------------------------------------------------
+Arion — https://github.com/AstraFoundry/Arion
+Copyright (C) 2026 AstraFoundry
+License: GNU Affero General Public License v3.0 only
+Commit: d2108feebe59d09e81f83341c08703f010eabc75 (2026-11-10)
+
+The voice input (floating capsule, dictation flow, hold/tap key handling,
+recognition worker and segmentation, vocabulary and hotwords, speech cleanup,
+scenes and the polishing prompt) is ported from Arion. Every ported file
+names its Arion source at the top; docs/ARION.md lists them.
+
+--------------------------------------------------------------------------------
+WowType — https://github.com/Gloridust/WowType
+License: MIT OR Apache-2.0
+Commit: 1e31c67
+
+The original Wanxiang pinyin engine under engine/core (docs/15) is copied from
+WowType; engine/UPSTREAM.md lists the local changes. Since 2026-11-15 the
+Wanxiang engine runs on librime (below, docs/22); this code stays in the
+repository but is not built (cargo feature "wanxiang").
+
+librime-octagram — https://github.com/lotem/librime-octagram
+Copyright (c) RIME Developers
+License: BSD-3-Clause (librime-octagram-BSD-3-Clause.txt in Licenses)
+
+engine/core/src/gram.rs (old engine, not built) reads and scores .gram grammar
+models as octagram does. The octagram plugin itself ships with librime (below).
+
+librime (Rime Input Method Engine) — https://github.com/rime/librime
+Copyright (c) RIME Developers
+License: BSD-3-Clause (librime-BSD-3-Clause.txt in Licenses)
+Version: 1.17.0 (official release rime-33e7814-macOS-universal) with the
+plugins librime-lua (hchunhui/librime-lua ec52e48, BSD-3-Clause, bundles
+Lua 5.4, MIT), librime-octagram (lotem/librime-octagram dfcc151, BSD-3-Clause)
+and librime-predict (rime/librime-predict 920bd41, BSD-3-Clause)
+
+The Wanxiang pinyin engine (docs/22) loads the official macOS release of
+librime from Contents/Frameworks; it is not modified. librime statically links
+Boost (BSL-1.0), glog (BSD-3-Clause), LevelDB (BSD-3-Clause), marisa-trie
+(BSD-2-Clause OR LGPL-2.1-or-later), OpenCC (Apache-2.0) and yaml-cpp (MIT).
+Their license texts are in Contents/Resources/Licenses; licenses/README.md
+lists where each was taken from.
+
+rime-wanxiang (万象拼音) — https://github.com/amzxyz/rime-wanxiang
+rime-wanxiang-data — https://github.com/amzxyz/rime-wanxiang-data
+RIME-LMDG — https://github.com/amzxyz/RIME-LMDG
+Creator: amzxyz
+License: CC BY 4.0 (CC-BY-4.0.txt under licenses/)
+
+Resources/Data/rime holds the Wanxiang scheme (standard edition; the release
+is named in Licenses/rime-wanxiang-scheme-CC-BY-4.0.txt) with its dictionaries
+precompiled by librime. The nine-key schemes, the Weasel settings, the sample
+configurations and the README are left out; WoType's settings are written as
+*.custom.yaml patches in the user's folder, the scheme files are not changed,
+except one line added to lua/wanxiang/auto_phrase.lua: the Memory it creates
+disconnects its own notifiers, so deleting a candidate no longer deletes a
+second one.
+Online dictionary updates come from rime-wanxiang-data and the grammar model
+from RIME-LMDG, both downloaded when the user asks for them.
+
+OpenCC — https://github.com/BYVoid/OpenCC
+License: Apache-2.0 (OpenCC-Apache-2.0.txt in Licenses)
+
+engine/core/data/s2t.tsv (old engine, not built); librime links OpenCC (above).
+
+Unicode CLDR — https://cldr.unicode.org/
+License: Unicode License v3 (Unicode-License-V3.txt in Licenses)
+
+engine/core/src/emoji/cldr.tsv (emoji keywords, old engine, not built).
+
+--------------------------------------------------------------------------------
+MSIME (水杉输入法) — https://github.com/metasequoiaime/msime
+License: GNU General Public License v3.0 only; the engine crate (msime-engine)
+and msime-path-trust are MPL-2.0. Bundled tables and third-party crates keep
+their own licenses (see crates/engine/licenses and docs/third-party.md there).
+Commit: 6de43c05d45c426421f39f536818c52719527e8a (2026-11-11)
+
+msime-host-api is linked into libwotype_core.a and is the default pinyin
+engine (docs/12; the Wanxiang engine above is the other one, docs/22).
+GPLv3 section 13 allows combining it with this AGPLv3 work.
+
+The app carries the license texts in Contents/Resources/Licenses, collected at
+build time by scripts/collect-licenses.py: GPL-3.0 and MPL-2.0, the notices
+MSIME's macOS package ships for the dictionaries, models and data compiled
+into the engine, and rust-crates.txt, which lists every Rust crate linked into
+libwotype_core.a with its version, license and license text.
+
+msime-dictionary — https://github.com/metasequoiaime/msime-dictionary
+License: GPL-3.0 (contains rime-ice data, https://github.com/iDvel/rime-ice);
+the bigram and trigram tables are counts from Chinese Wikipedia, CC BY-SA 4.0;
+the English word list keeps SCOWL's copyright (msime-scowl_Copyright.txt).
+
+The dictionaries shipped under Resources/Data/msime/resources and updated
+online come from its dict-v* releases.
+
+chinese-ime-lm — https://github.com/metasequoiaime/chinese-ime-lm
+License: Apache-2.0 (model weights)
+
+sentence-model.safetensors ships with the app; sentence-model-desktop.safetensors
+is downloaded when the user asks for it.
+
+--------------------------------------------------------------------------------
+regex — https://github.com/rust-lang/regex
+License: MIT OR Apache-2.0
+
+Used by engine/core/src/polish (speech cleanup rules).
+
+--------------------------------------------------------------------------------
+pypinyin — https://github.com/mozillazg/python-pinyin
+Copyright (c) 2016 mozillazg, 闲耘
+License: MIT
+
+CMU Pronouncing Dictionary — https://github.com/cmusphinx/cmudict
+Copyright (C) 1993-2015 Carnegie Mellon University
+License: BSD-2-Clause style (see the file)
+
+WoType/WoType/Resources/spelling/ holds the character readings derived from
+pypinyin 0.55.0 and cmudict.dict, as shipped by Arion, with their licenses and
+provenance files.
+
+--------------------------------------------------------------------------------
+mlx-swift, mlx-swift-lm — https://github.com/ml-explore
+mlx-audio-swift — https://github.com/Blaizzy/mlx-audio-swift
+swift-transformers, swift-huggingface — https://github.com/huggingface
+License: MIT
+
+Used by WoType Voice (WoType/VoiceService) to run the speech recognition and
+polishing models.
+
+--------------------------------------------------------------------------------
+KeyboardShortcuts — https://github.com/sindresorhus/KeyboardShortcuts
+Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com)
+License: MIT
+
+Used for recording and storing the selection translation shortcuts
+(Settings › 划词翻译). WoType does not let it register global hotkeys.
+
+--------------------------------------------------------------------------------
+FluentRead — https://github.com/FluentRead/FluentRead
+License: GNU General Public License v3.0
+Commit: b8529827cca220421fe5cec35645df45d4fae3f5 (2026-11-12)
+
+Packages/FreeTranslate (the free translation library, GPL-3.0) ports the way
+FluentRead's src/providers/translation calls each free translation service,
+its fallback pool and its cooldown rules. Each ported file names its
+FluentRead source. GPLv3 section 13 allows combining it with this AGPLv3 work.
+
+--------------------------------------------------------------------------------
+Models (downloaded by the user, not distributed with WoType)
+Qwen3-ASR 1.7B (mlx-community/Qwen3-ASR-1.7B-8bit), Qwen3.5-2B
+(mlx-community/Qwen3.5-2B-4bit) — License: Apache-2.0
+Wanxiang grammar model (wanxiang-lts-zh-hans.gram, RIME-LMDG) — License: CC BY 4.0

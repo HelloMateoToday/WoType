@@ -1,0 +1,5 @@
+/* Names shown in the Input menu and the input source list in System Settings */
+"CFBundleName" = "WoType";
+"CFBundleDisplayName" = "WoType";
+"com.acme.inputmethod.WoType" = "WoType";
+"com.acme.inputmethod.WoType.pinyin" = "WoType Pinyin";
