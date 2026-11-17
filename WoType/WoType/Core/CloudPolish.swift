@@ -110,6 +110,18 @@ nonisolated struct CloudModel: Codable, Equatable, Sendable {
 
     /// 设置里的名字：「DeepSeek · deepseek-chat」（供应商在前，前面不放图标）
     var title: String { provider.title + " · " + model }
+
+    /// 只写供应商（翻译窗口的卡片）：「DeepSeek」；兼容接口写地址的域名（api.siliconflow.cn → siliconflow），认不出来写供应商
+    var vendor: String {
+        guard provider.needsBase, let host = URL(string: baseURL)?.host(), !host.isEmpty else { return provider.title }
+        var labels = host.split(separator: ".").map(String.init)
+        // IP、localhost 整个写
+        guard labels.count > 1, Int(labels.last!) == nil else { return host }
+        labels.removeLast()
+        // com.cn、co.uk 这类两段的后缀
+        if labels.count > 1, ["com", "net", "org", "co", "gov", "edu", "ac"].contains(labels.last!) { labels.removeLast() }
+        return labels.last!
+    }
 }
 
 /// 云端模型用在哪儿：润色、语音翻译、划词翻译各选各的。
@@ -412,6 +424,58 @@ final class CloudPolish {
         }
     }
 
+    /// 流式对话（翻译窗口的 AI 翻译源，docs/16 第二期，照 Easydict 的 StreamService）：每收到一段新文字，
+    /// 把到目前为止的全文交给 onText（在后台线程调），结束返回全文。推理参数的处理和 complete 一样
+    /// （不认、关不掉时换一档再发）：出错的状态码在收到任何文字之前就知道，换一档重发不会重复显示。
+    /// 被截断（max_tokens）的照样返回已经生成的文字；被内容过滤拦下又一个字没有的算拒绝
+    func stream(messages: [[String: String]], maxTokens: Int, model entry: CloudModel,
+                onText: @escaping @Sendable (String) -> Void) async throws -> String {
+        guard let apiKey = apiKey(entry) else { throw CloudFailure.notConnected }
+        let provider = entry.provider, model = entry.model, base = entry.base
+        do {
+            if provider.anthropicFormat {
+                return try await Self.anthropicStream(base: base, key: apiKey, model: model, messages: messages,
+                                                      maxTokens: maxTokens, onText: onText)
+            }
+        } catch let error as HTTPError {
+            throw Self.classify(error)
+        }
+        let key = provider.rawValue + "/" + model
+        let fallback = Settings.shared.config.voiceCloudReasoning
+        var efforts: [String?] = ["none", "minimal", "low"]
+        if let floor = reasoningFloor[key] {
+            if floor.isEmpty {
+                efforts = [nil]
+            } else if fallback, let i = efforts.firstIndex(of: floor) {
+                efforts = Array(efforts[i...])
+            }
+        }
+        var index = 0
+        while true {
+            let effort = efforts[index]
+            do {
+                let text = try await Self.openAIStream(base: base, key: apiKey, model: model, messages: messages,
+                                                        maxTokens: maxTokens, effort: effort, openAI: provider == .openai,
+                                                        onText: onText)
+                if index > 0 || effort == nil { reasoningFloor[key] = effort ?? "" }
+                return text
+            } catch let error as HTTPError where error.status == 400 && effort != nil {
+                let message = error.body.lowercased()
+                if message.contains("cannot be disabled") || message.contains("reasoning is mandatory") {
+                    guard fallback, index + 1 < efforts.count else { throw CloudFailure.reasoning }
+                    index += 1
+                } else if message.contains("reasoning") {
+                    efforts = [nil]
+                    index = 0
+                } else {
+                    throw Self.classify(error)
+                }
+            } catch let error as HTTPError {
+                throw Self.classify(error)
+            }
+        }
+    }
+
     // MARK: - 接口
 
     nonisolated struct HTTPError: Error {
@@ -460,6 +524,109 @@ final class CloudPolish {
         }
         guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw CloudFailure.outage }
         return object
+    }
+
+    /// 发一个流式请求（SSE），按行交给 line。状态码不是 2xx 时读出回包抛 HTTPError（这时还没有任何文字）。
+    /// 网络错误照 send 分类；60 秒没有新数据算超时（Easydict 的 llmRequestTimeoutInterval）
+    nonisolated private static func streamLines(_ request: URLRequest, line: (String) throws -> Bool) async throws {
+        var request = request
+        request.timeoutInterval = 60
+        do {
+            let (bytes, response) = try await URLSession.shared.bytes(for: request)
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            guard (200..<300).contains(status) else {
+                var body = Data()
+                for try await byte in bytes {
+                    body.append(byte)
+                    if body.count >= 4096 { break }
+                }
+                throw HTTPError(status: status, body: String(decoding: body, as: UTF8.self))
+            }
+            for try await text in bytes.lines {
+                try Task.checkCancellation()
+                if try !line(text) { break }
+            }
+        } catch let error as HTTPError {
+            throw error
+        } catch let error as CloudFailure {
+            throw error
+        } catch let error as URLError where error.code == .timedOut {
+            throw CloudFailure.timeout
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch let error as URLError where error.code == .cancelled {
+            throw CancellationError()
+        } catch {
+            throw CloudFailure.network
+        }
+    }
+
+    /// SSE 的一行 data: 后面的 JSON（不是 data 行、解析不了的返回 nil；[DONE] 返回空字典）
+    nonisolated private static func event(_ line: String) -> [String: Any]? {
+        guard line.hasPrefix("data:") else { return nil }
+        let payload = line.dropFirst(5).trimmingCharacters(in: .whitespaces)
+        if payload == "[DONE]" { return [:] }
+        return (try? JSONSerialization.jsonObject(with: Data(payload.utf8))) as? [String: Any]
+    }
+
+    nonisolated private static func openAIStream(base: String, key: String, model: String, messages: [[String: String]],
+                                                 maxTokens: Int, effort: String?, openAI: Bool,
+                                                 onText: @Sendable (String) -> Void) async throws -> String {
+        guard let url = URL(string: base + "/chat/completions") else { throw CloudFailure.address }
+        var body: [String: Any] = ["model": model, "messages": messages, "stream": true]
+        body[openAI ? "max_completion_tokens" : "max_tokens"] = maxTokens
+        if let effort { body["reasoning_effort"] = effort }
+        var req = request(url, key: key, anthropic: false)
+        req.httpMethod = "POST"
+        req.httpBody = try JSONSerialization.data(withJSONObject: body)
+        var text = ""
+        var finish: String?
+        try await streamLines(req) { line in
+            guard let object = event(line) else { return true }
+            if object.isEmpty { return false }
+            if object["error"] != nil { throw CloudFailure.outage }
+            guard let choice = (object["choices"] as? [[String: Any]])?.first else { return true }
+            if let delta = choice["delta"] as? [String: Any], let content = delta["content"] as? String, !content.isEmpty {
+                text += content
+                onText(text)
+            }
+            if let reason = choice["finish_reason"] as? String { finish = reason }
+            return true
+        }
+        if text.isEmpty, finish == "content_filter" { throw CloudFailure.refused }
+        return text
+    }
+
+    nonisolated private static func anthropicStream(base: String, key: String, model: String, messages: [[String: String]],
+                                                    maxTokens: Int, onText: @Sendable (String) -> Void) async throws -> String {
+        guard let url = URL(string: base + "/messages") else { throw CloudFailure.address }
+        let system = messages.filter { $0["role"] == "system" }.compactMap { $0["content"] }.joined(separator: "\n\n")
+        let turns = messages.filter { $0["role"] != "system" }
+        var body: [String: Any] = ["model": model, "max_tokens": maxTokens, "messages": turns, "stream": true]
+        if !system.isEmpty { body["system"] = system }
+        var req = request(url, key: key, anthropic: true)
+        req.httpMethod = "POST"
+        req.httpBody = try JSONSerialization.data(withJSONObject: body)
+        var text = ""
+        try await streamLines(req) { line in
+            guard let object = event(line), !object.isEmpty else { return true }
+            switch object["type"] as? String {
+            case "content_block_delta":
+                if let delta = object["delta"] as? [String: Any], delta["type"] as? String == "text_delta",
+                   let piece = delta["text"] as? String, !piece.isEmpty {
+                    text += piece
+                    onText(text)
+                }
+            case "message_stop":
+                return false
+            case "error":
+                throw CloudFailure.outage
+            default:
+                break
+            }
+            return true
+        }
+        return text
     }
 
     /// 模型列表：OpenAI 格式的 data[].id；Anthropic 的 data[].id（要翻页时只取前 1000 个）。

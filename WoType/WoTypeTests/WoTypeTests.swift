@@ -251,7 +251,7 @@ struct WoTypeTests {
     }
 
     @MainActor @Test func wanxiangPunctuationAndSpacing() async throws {
-        // 符号补全（后半个挂在末尾，跟着下一次上屏送出，紧接着按出它就跨过去）、数字后的 . 原样、
+        // 符号补全（照微信输入法：一对都上屏、光标退回中间）、数字后的 . 原样、数字后的 , 不挂进组字区、
         // 汉字和英文数字之间补空格。不上屏拼音，不往用户目录学词；改的设置测完改回去
         let engine = RimeEngine.shared
         engine.start()
@@ -267,16 +267,20 @@ struct WoTypeTests {
         }
         _ = session.reset(commitPending: false)
         let shift = UInt32(WOTYPE_MOD_SHIFT)
+        // 照微信输入法：没在组字时按 ( 一对都上屏，光标退回中间；打拼音到一半按 ( 是「候选 + 左括号」，不补
         let open = try #require(session.key(0x28, modifiers: shift, preceding: 0))
-        #expect(open.commit == "（" && open.tail == "）" && open.mode == .list, "\(open.commit) | \(open.tail)")
-        let flushed = try #require(session.commitText("你好"))
-        #expect(flushed.commit == "你好）" && flushed.tail.isEmpty)
-        let skipped = try #require(session.key(0x29, modifiers: shift, preceding: 0))
-        #expect(skipped.handled && skipped.commit.isEmpty, "紧接着按 ) 跨过去")
-        // 后半个挂着时直接按出它：只出一个
-        _ = session.key(0x28, modifiers: shift, preceding: 0)
-        let closed = try #require(session.key(0x29, modifiers: shift, preceding: 0))
-        #expect(closed.commit == "）" && closed.tail.isEmpty)
+        #expect(open.commit == "（）" && open.caretBack == 1 && open.mode == .idle, "\(open.commit) | \(open.caretBack)")
+        let quote = try #require(session.key(0x22, modifiers: shift, preceding: 0))
+        #expect(quote.commit == "“”" && quote.caretBack == 1, "\(quote.commit)")
+        for letter in "ni".unicodeScalars { _ = session.key(letter.value, modifiers: 0, preceding: 0) }
+        let composing = try #require(session.key(0x28, modifiers: shift, preceding: 0))
+        #expect(composing.commit.hasSuffix("（") && !composing.commit.contains("）") && composing.caretBack == 0,
+                "\(composing.commit)")
+        _ = session.reset(commitPending: false)
+        // 数字后的 , 不再被万象当数字分隔符挂进组字区（1,ni → ,ni），出中文的（InputController 再按下一个键换英文）
+        session.setContext("1")
+        let comma = try #require(session.key(0x2C, modifiers: 0, preceding: 0x31))
+        #expect(comma.commit == "，" && comma.mode == .idle, "\(comma.commit) | \(comma.mode)")
         // 数字后的 . 交给应用（原样），汉字后的数字由会话上屏、补空格
         session.setContext("3")
         #expect(session.key(0x2E, modifiers: 0, preceding: 0x33)?.handled == false)
@@ -286,6 +290,24 @@ struct WoTypeTests {
         #expect(session.spacedCommit("5", preceding: 0x4E2D, application: "") == " 5")
         #expect(session.spacedCommit("你好", preceding: 0x61, application: "") == " 你好")
         #expect(session.spacedCommit("你好", preceding: 0x4E2D, application: "") == "你好")
+    }
+
+    @MainActor @Test func wanxiangLoneLetterDigits() async throws {
+        // 只打了一个 v、i、u 时：候选不画序号，数字原样接在后面（v5.0，照微信输入法）；普通拼音后的数字照旧选词
+        let engine = RimeEngine.shared
+        engine.start()
+        for _ in 0..<300 where !engine.ready { try await Task.sleep(for: .milliseconds(100)) }
+        let session = try #require(engine.session(idle: true))
+        _ = session.reset(commitPending: false)
+        defer { _ = session.reset(commitPending: false) }
+        let v = try #require(session.key(0x76, modifiers: 0, preceding: 0))
+        #expect(!v.candidates.isEmpty && !v.numbered, "\(v.candidates.map(\.text))")
+        var last: Snapshot?
+        for key in "5.0 ".unicodeScalars { last = session.key(key.value, modifiers: 0, preceding: 0) }
+        #expect(last?.commit == "v5.0", "\(last?.commit ?? "nil")")
+        for key in "ni".unicodeScalars { _ = session.key(key.value, modifiers: 0, preceding: 0) }
+        let picked = try #require(session.key(0x33, modifiers: 0, preceding: 0))
+        #expect(!picked.commit.isEmpty && !picked.commit.contains("3"), "ni3 选第 3 个候选：\(picked.commit)")
     }
 
     @Test func rawInputCompletesMail() {

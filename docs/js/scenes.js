@@ -10,7 +10,7 @@ class Script {
     this.state = {
       // prefix：分段选时已经选好、但还在输入中的那段（和拼音一起带下划线，实测是这样）
       lines: [], committed: '', prefix: '', pinyin: '', candidates: [], highlight: 0,
-      translation: null, key: null, caption: null, toast: null, voice: null, selection: null, bubble: null,
+      translation: null, key: null, caption: null, toast: null, voice: null, selection: null, tw: null,
     };
   }
 
@@ -192,8 +192,19 @@ const parts = {
     s.caption('选中文字，按 ⌃⌥T 看译文');
     s.wait(0.6);
     s.select(0);
-    s.press('⌃⌥T', 2.4, (st) => { st.bubble = 'I’d like to ask, what time does the review process begin?'; });
-    s.state.bubble = null;
+    // 翻译窗口里的译文是 2026-11-17 实测的（DeepSeek、微软翻译两个源；AI 逐字出，机器翻译整段出）
+    s.press('⌃⌥T', 1.6, (st) => {
+      st.tw = {
+        query: '我想问一下，评审几点开始？', language: '简体中文',
+        cards: [
+          { name: 'DeepSeek', info: true, text: 'I’d like to ask, what time does the review start?', at: 0.9, speed: 26 },
+          { name: '微软翻译', text: 'I want to ask, what time does the judging start?', at: 0.45 },
+        ],
+      };
+    });
+    s.caption('多个翻译源一起翻，AI 逐字出译文');
+    s.wait(2.8);
+    s.state.tw = null;
     s.caption('按 ⌃⌥I 直接换成译文');
     s.wait(0.5);
     s.press('⌃⌥I', 2.2, (st) => {

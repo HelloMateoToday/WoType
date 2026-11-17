@@ -33,6 +33,8 @@ class InputController: IMKInputController {
     private var lastMarked: (text: NSAttributedString, caret: Int)?
     /// 上一次快照的模式：idle 时没在组字（可以重建会话、按标点时读光标前的字）。
     private var lastMode: Snapshot.Mode = .idle
+    /// 数字后刚上屏的中文「，」「：」：英文写法、上屏后光标在哪。紧接着打数字时换成英文的（照微信输入法）
+    private var digitPunctuation: (ascii: String, chinese: String, location: Int)?
     /// 上一次的快照：译文翻好了用它重画候选窗
     private var lastSnapshot: Snapshot?
 
@@ -111,6 +113,7 @@ class InputController: IMKInputController {
 
     override func deactivateServer(_ sender: Any!) {
         // 失去焦点时清空编辑区，不往别的窗口上屏
+        digitPunctuation = nil
         Log.input.debug("停用 \(ObjectIdentifier(self).hashValue) 当前=\(Self.current === self)")
         apply(PinyinEngines.current.openSession?.reset(commitPending: false), to: sender as? IMKTextInput)
         if Self.current === self {
@@ -162,12 +165,26 @@ class InputController: IMKInputController {
         let plain = mapped.modifiers & UInt32(WOTYPE_MOD_CONTROL | WOTYPE_MOD_OPTION | WOTYPE_MOD_COMMAND) == 0
         let isLetter = mapped.key < 0x80 && Character(UnicodeScalar(UInt8(mapped.key))).isLetter
 
-        // 空编辑区打标点：把光标前一个字交给引擎，数字后的 . : , 原样输出（3.14、12:30）
+        // 空编辑区打标点：把光标前一个字交给引擎，数字后的 . 原样输出（3.14）
         var preceding: UInt32 = 0
         if lastMode == .idle, plain, mapped.key > 0x20, mapped.key < 0x7F, !isLetter,
            !(0x30...0x39).contains(mapped.key),
            let before = ClientGeometry.textBeforeCaret(client, count: 1)?.unicodeScalars.last {
             preceding = before.value
+        }
+        // 数字后的 , :（照微信输入法）：先上屏中文的「，」「：」，紧接着打数字时换成英文的（1,000、12:30），
+        // 后面是别的（汉字、空格……）就保持中文
+        if let pending = digitPunctuation {
+            digitPunctuation = nil
+            if lastMode == .idle, plain, (0x30...0x39).contains(mapped.key) { restore(pending, client: client) }
+        }
+        if Settings.shared.config.asciiPunctAfterDigit, plain, mapped.key == 0x2C || mapped.key == 0x3A,
+           let scalar = Unicode.Scalar(preceding), ("0"..."9").contains(Character(scalar)) {
+            let ascii = mapped.key == 0x2C ? "," : ":", chinese = mapped.key == 0x2C ? "，" : "："
+            client.insertText(chinese, replacementRange: notFound)
+            let location = client.selectedRange().location
+            if location != NSNotFound { digitPunctuation = (ascii, chinese, location) }
+            return true
         }
         // 要上文的引擎（万象）：新输入的第一个字母、空编辑区的 . : 和数字，读一次光标前的文字，排序更准、
         // 数字后的标点原样输出、中英文之间补空格
@@ -233,10 +250,16 @@ class InputController: IMKInputController {
         return item
     }
 
+    /// 查过的 App 名字：系统每激活一次输入框就要一次菜单，每次都问 LaunchServices 太费
+    private static var appNames: [String: String] = [:]
+
     /// App 的名字（没装在本机就用 bundle ID）。
     static func appName(_ bundleID: String) -> String {
+        if let name = appNames[bundleID] { return name }
         guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) else { return bundleID }
-        return FileManager.default.displayName(atPath: url.path).replacingOccurrences(of: ".app", with: "")
+        let name = FileManager.default.displayName(atPath: url.path).replacingOccurrences(of: ".app", with: "")
+        appNames[bundleID] = name
+        return name
     }
 
     /// 菜单里选了场景：输入法菜单的动作传进来的是一个字典，菜单项在 kIMKCommandMenuItemName 里。
@@ -424,12 +447,21 @@ class InputController: IMKInputController {
 
     /// 上屏后光标往左退 count 个 UTF-16 单位（快捷短语指定了光标位置）。照水杉的 MSIMEPositionCommittedCursor：
     /// 在目标位置放一个空的编辑区再结束它，不用模拟按键，也就不要「辅助功能」权限。
-    private func moveCaretBack(_ count: Int, client: IMKTextInput) {
-        let selection = client.selectedRange()
-        guard selection.location != NSNotFound, selection.location >= count else { return }
+    /// end：上屏后光标该在的位置（上屏前的位置 + 上屏的长度）。不在上屏后读 selectedRange：那时读到的常常还是上屏前的
+    /// （2026-11-17 实测：空文档里按 ( 上屏「（）」后读到 0，应该是 2）
+    private func moveCaretBack(_ count: Int, end: Int, client: IMKTextInput) {
+        guard end >= count else { return }
         client.setMarkedText("", selectionRange: NSRange(location: 0, length: 0),
-                             replacementRange: NSRange(location: selection.location - count, length: 0))
+                             replacementRange: NSRange(location: end - count, length: 0))
         client.insertText("", replacementRange: notFound)
+    }
+
+    /// 数字后的「，」「：」换成英文的：光标还在刚上屏的地方、前一个字还是它才换（中间点过别处、删掉了就不换）
+    private func restore(_ pending: (ascii: String, chinese: String, location: Int), client: IMKTextInput) {
+        guard client.selectedRange().location == pending.location, pending.location > 0,
+              ClientGeometry.textBeforeCaret(client, count: 1) == pending.chinese else { return }
+        let length = (pending.chinese as NSString).length
+        client.insertText(pending.ascii, replacementRange: NSRange(location: pending.location - length, length: length))
     }
 
     /// 上一次 apply 各段用了多少毫秒（按键处理的日志用）
@@ -467,10 +499,15 @@ class InputController: IMKInputController {
                let before = ClientGeometry.textBeforeCaret(client, count: 1)?.unicodeScalars.last {
                 text = open.spacedCommit(text, preceding: before.value, application: client.bundleIdentifier() ?? "")
             }
+            // 上屏换掉编辑区（有的话），从它的开头起；没有就从光标处起
+            let marked = client.markedRange()
+            let start = hasMarkedText && marked.location != NSNotFound ? marked.location : client.selectedRange().location
             client.insertText(text, replacementRange: notFound)
             hasMarkedText = false
             lastMarked = nil
-            if snapshot.caretBack > 0 { moveCaretBack(snapshot.caretBack, client: client) }
+            if snapshot.caretBack > 0, start != NSNotFound {
+                moveCaretBack(snapshot.caretBack, end: start + (text as NSString).length, client: client)
+            }
         }
         guard snapshot.mode != .idle else {
             if hasMarkedText {
@@ -490,12 +527,9 @@ class InputController: IMKInputController {
         marked.append(NSAttributedString(string: snapshot.remaining, attributes: [
             .underlineStyle: NSUnderlineStyle.single.rawValue, .markedClauseSegment: 1,
         ]))
-        // 光标：← → 移进拼音里时在中间，否则在拼音末尾；自动补上的后半个符号画在最后、光标后面
+        // 光标：← → 移进拼音里时在中间，否则在拼音末尾
         let caret = (snapshot.selected as NSString).length
             + min(snapshot.caret ?? Int.max, (snapshot.remaining as NSString).length)
-        marked.append(NSAttributedString(string: snapshot.tail, attributes: [
-            .underlineStyle: NSUnderlineStyle.single.rawValue, .markedClauseSegment: 2,
-        ]))
         // 和上次一样、应用那边的编辑区也还在（长度对得上，没被应用自己结束掉）就不再设
         let unchanged = hasMarkedText && lastMarked.map { $0.caret == caret && $0.text.isEqual(to: marked) } == true
             && client.markedRange().length == marked.length

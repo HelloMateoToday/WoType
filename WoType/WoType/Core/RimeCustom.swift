@@ -95,6 +95,9 @@ nonisolated struct RimeCustom: Equatable {
         // 退格限制靠按键松开判断一串退格结束了：macOS 的输入法拿不到松开，状态会卡住，删不了已上屏的字。
         // 万象对鼠须管也是关掉的（wanxiang.is_special_desktop）
         main += "  super_processor/enable_backspace_limit: false\n"
+        // 数字后的 , . : 不当数字分隔符挂进组字区（挂着时后面打的拼音也原样上屏：1,ni → ,ni）。
+        // 数字后的标点由 InputController、RimeSession 照微信输入法处理（docs/22）
+        main += "  punctuator/digit_separators: \"\"\n"
         // 标出纯学出来的词（learnedFilter）：放在最后，查系统词库用一个不带用户词库的翻译器
         main += "  engine/filters/+:\n    - lua_filter@*wotype_learned\n"
         main += "  wotype_system/dictionary: wanxiang\n  wotype_system/prism: wanxiang\n  wotype_system/enable_user_dict: false\n"

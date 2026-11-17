@@ -59,6 +59,24 @@ nonisolated enum Skin: String, Codable, CaseIterable {
     }
 }
 
+/// 翻译并显示的窗口出现在哪（docs/16，照 Easydict 的 EZShowWindowPosition）。
+nonisolated enum TranslationWindowPosition: String, Codable, CaseIterable {
+    /// 鼠标所在屏幕的右侧、上下居中
+    case right
+    /// 上一次窗口所在的地方（拖过就是拖到的地方）
+    case last
+    /// 鼠标旁边
+    case mouse
+
+    var title: String {
+        switch self {
+        case .right: "屏幕右侧"
+        case .last: "上次的位置"
+        case .mouse: "鼠标旁"
+        }
+    }
+}
+
 /// 润色在哪儿跑（Arion 的 PolishEngine）。
 nonisolated enum PolishEngine: String, Codable {
     case local
@@ -147,11 +165,11 @@ nonisolated struct Config: Codable, Equatable {
     /// 候选窗最上面再显示一遍正在打的拼音（输入框里不显示拼音的应用靠它）。
     var showPinyinInPanel = true
     var emojiSuggest = true
-    /// 紧跟在数字后面的 . 和 : 原样输出（3.14、12:30）。
+    /// 紧跟在数字后面的标点（照微信输入法）：. / 原样输出（3.14、2024/1/1）；, : 先出中文，紧接着打数字时换成英文（1,000、12:30）。
     var asciiPunctAfterDigit = true
     /// / 键输入顿号「、」。
     var slashDunhao = true
-    /// （【《“‘ 自动补上右半边，光标停在中间（照水杉：后半个先留在编辑区末尾）。
+    /// （【《“‘ 自动补上右半边，光标停在中间（照微信输入法：一对都上屏，光标退回中间；打拼音到一半按左括号不补）。
     var autoPair = false
     /// 中文与英文、数字之间自动加空格（水杉的 chinese_english_spacing、cross_commit_spacing）。
     var spaceCJKLatin = false
@@ -172,13 +190,23 @@ nonisolated struct Config: Codable, Equatable {
     /// 划词翻译（docs/16，快捷键存在 KeyboardShortcuts 自己的 UserDefaults 里）：两个功能分开开关，默认都关。
     /// 翻译并替换（⌃⌥I）：输入框里选中的（没选中是整个输入框）换成译文
     var selectionReplace = false
-    /// 翻译并显示（⌃⌥T）：任何地方选中的文字（网页也行），译文显示在气泡里
+    /// 翻译并显示（⌃⌥T）：任何地方选中的文字（网页也行），译文显示在翻译窗口里
     var selectionShow = false
+    /// 翻译窗口出现在哪
+    var selectionWindowPosition = TranslationWindowPosition.right
+    /// 没选中文字时按翻译并显示的快捷键，也打开（空的）翻译窗口，自己输入再翻（默认关：什么都不做）
+    var selectionOpenEmpty = false
+    /// 翻译窗口最高占屏幕可用高度的百分之几（照 Easydict 的 maxWindowHeightPercentage：20～100，默认 100）
+    var selectionWindowMaxHeight = 100
+    /// 翻译窗口的翻译源（SelectionTranslator.Source 的 id）：排好的顺序（设置里拖过才有，没列的按默认顺序排在后面）、
+    /// 开着的。折叠不记（只管当前这次结果，重新翻译全部展开）
+    var selectionSourceOrder: [String] = []
+    var selectionSourcesOn = ["microsoft", "transmart", "youdao"]
     /// 翻成哪种语言（FreeTranslate 的语言代码，多一个 zh-Hans）
     var selectionTarget = "en"
     /// 智能方向：原文已经是目标语言时改翻成简体中文（目标是简体中文时改翻成英语）
     var selectionSmartDirection = true
-    /// 用什么翻：auto、FreeTranslate 的 provider id（机器翻译），ai.cloud（AI 翻译，用 selectionCloudModel）
+    /// 翻译并替换用什么翻（翻译并显示用 selectionSourcesOn）：auto、FreeTranslate 的 provider id（机器翻译），ai.cloud（AI 翻译，用 selectionCloudModel）
     var selectionEngine = "auto"
     /// AI 翻译选的云端模型（selectionEngine 是 ai.cloud 时用）
     var selectionCloudModel: String?
@@ -275,6 +303,12 @@ nonisolated struct Config: Codable, Equatable {
         // 以前只有一个总开关 selectionTranslation（2026-11-12 拆成两个）：不沿用，两个都从关着开始
         selectionReplace = try c.decodeIfPresent(Bool.self, forKey: .selectionReplace) ?? d.selectionReplace
         selectionShow = try c.decodeIfPresent(Bool.self, forKey: .selectionShow) ?? d.selectionShow
+        selectionWindowPosition = (try? c.decodeIfPresent(TranslationWindowPosition.self, forKey: .selectionWindowPosition))
+            ?? d.selectionWindowPosition
+        selectionWindowMaxHeight = try c.decodeIfPresent(Int.self, forKey: .selectionWindowMaxHeight) ?? d.selectionWindowMaxHeight
+        selectionOpenEmpty = try c.decodeIfPresent(Bool.self, forKey: .selectionOpenEmpty) ?? d.selectionOpenEmpty
+        selectionSourceOrder = try c.decodeIfPresent([String].self, forKey: .selectionSourceOrder) ?? d.selectionSourceOrder
+        selectionSourcesOn = try c.decodeIfPresent([String].self, forKey: .selectionSourcesOn) ?? d.selectionSourcesOn
         selectionTarget = try c.decodeIfPresent(String.self, forKey: .selectionTarget) ?? d.selectionTarget
         selectionSmartDirection = try c.decodeIfPresent(Bool.self, forKey: .selectionSmartDirection) ?? d.selectionSmartDirection
         selectionEngine = try c.decodeIfPresent(String.self, forKey: .selectionEngine) ?? d.selectionEngine
@@ -361,6 +395,11 @@ nonisolated struct Config: Codable, Equatable {
         try c.encode(translationEngine, forKey: .translationEngine)
         try c.encode(selectionReplace, forKey: .selectionReplace)
         try c.encode(selectionShow, forKey: .selectionShow)
+        try c.encode(selectionWindowPosition, forKey: .selectionWindowPosition)
+        try c.encode(selectionWindowMaxHeight, forKey: .selectionWindowMaxHeight)
+        try c.encode(selectionOpenEmpty, forKey: .selectionOpenEmpty)
+        try c.encode(selectionSourceOrder, forKey: .selectionSourceOrder)
+        try c.encode(selectionSourcesOn, forKey: .selectionSourcesOn)
         try c.encode(selectionTarget, forKey: .selectionTarget)
         try c.encode(selectionSmartDirection, forKey: .selectionSmartDirection)
         try c.encode(selectionEngine, forKey: .selectionEngine)
@@ -413,7 +452,9 @@ nonisolated struct Config: Codable, Equatable {
         case voiceRecognizer, voiceTrialAccepted, cloudSpeechModels
         case slashDunhao, autoPair, spaceCJKLatin, chaizi, vNumber, quickPhraseCandidates, cloudCandidates
         case candidateTranslation, translationTarget, translationEngine
-        case selectionReplace, selectionShow, selectionTarget, selectionSmartDirection, selectionEngine, selectionCloudModel
+        case selectionReplace, selectionShow, selectionWindowPosition, selectionWindowMaxHeight, selectionSourceOrder
+        case selectionSourcesOn, selectionOpenEmpty
+        case selectionTarget, selectionSmartDirection, selectionEngine, selectionCloudModel
         case autoUpdateLexicon
         case msimeModel, pinyinEngine, shuangpinProfile, wanxiangFuzzyRules, wanxiangAutoUpdateLexicon, wanxiangTypoCorrection
         /// 老版本的模糊音总开关，只读不写。

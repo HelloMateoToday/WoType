@@ -140,13 +140,15 @@ final class MsimeSession {
         msime_client_string_free(msime_client_destroy(handle))
     }
 
-    /// 有组字、候选或补上没送出的后半个：这时不重建会话。
-    var composing: Bool { view.active || pendingClosing != nil }
+    /// 有组字、候选：这时不重建会话。
+    var composing: Bool { view.active }
 
     // MARK: - 按键
 
     /// 正在处理的标点键（符号自动补全看它决定补不补、引号要不要改回前半个）。
     private var punctuationKey: UInt8?
+    /// 这个标点键按下时没在组字（照微信：只有这时补）
+    private var punctuationIdle = false
 
     /// preceding：光标前一个字（Unicode 标量，0 是不知道），水杉判断 3.14 这类数字后的标点用。
     func key(_ key: UInt32, modifiers: UInt32, preceding: UInt32) -> Snapshot? {
@@ -163,21 +165,13 @@ final class MsimeSession {
         updateCapsLock(modifiers & UInt32(WOTYPE_MOD_CAPSLOCK) != 0)
         if raw != nil { return rawKey(key, modifiers: modifiers) }
         let listed = !view.candidates.isEmpty
-        let skip = autoClosed
-        autoClosed = nil
         // 照微信：展开时 = 就是 ↓、- 就是 ↑
         if expanded, let grid = gridKey(key == 0x3D && !shift ? UInt32(WOTYPE_KEY_DOWN)
                                         : key == 0x2D ? UInt32(WOTYPE_KEY_UP) : key) {
             return grid
         }
         switch Int(key) {
-        case WOTYPE_KEY_BACKSPACE:
-            // 没在组字、只挂着补上的后半个：删左半个的同时把它也去掉（键交给应用删左半个）
-            if !view.active, pendingClosing != nil {
-                pendingClosing = nil
-                return snapshot(handled: false)
-            }
-            return command(.backspace)
+        case WOTYPE_KEY_BACKSPACE: return command(.backspace)
         case WOTYPE_KEY_RETURN: return command(shift ? .commitRawWithoutLearning : .commitRaw)
         case WOTYPE_KEY_ESCAPE: return command(.cancel)
         case WOTYPE_KEY_DELETE: return command(.deleteForward)
@@ -210,7 +204,9 @@ final class MsimeSession {
         // . 和 @ 也进原样输入（照旧万象：网址、邮箱，@ 后面补全邮箱后缀，和万象一样）。水杉自己的 @ 邮箱模式
         // （@ 是它的拼写符号）原样排第一，不照微信，不用它
         let rawSymbol = ascii == UInt8(ascii: "+") || ascii == UInt8(ascii: ".") || ascii == UInt8(ascii: "-") && !navigated
-        if listed, !spelling && rawSymbol || ascii == UInt8(ascii: "@"), !view.editingText.isEmpty {
+        // 只打了一个 v、i、u 时按数字也是（loneLetter）：v5.0、v3.14 原样打（照微信输入法）
+        let lone = (0x30...0x39).contains(ascii) && loneLetter
+        if listed || lone, !spelling && (rawSymbol || lone) || ascii == UInt8(ascii: "@"), !view.editingText.isEmpty {
             raw = RawInput(base: (view.phrasePrefix ?? "") + view.editingText, symbol: Character(Unicode.Scalar(ascii)))
             expanded = false
             return snapshot(handled: true)
@@ -246,12 +242,9 @@ final class MsimeSession {
         }
         // 标点
         punctuationKey = ascii
+        punctuationIdle = !view.active
         defer { punctuationKey = nil }
-        // 紧跟在自动补上的后半个后面再按出同一个后半个：跨过去，不再出一个（照水杉的 PairedPunctuation 跟踪）
-        if let skip, !view.active, Self.closingKeys[ascii] == skip {
-            return snapshot(handled: true)
-        }
-        // 没有组字时带上光标前的字：数字后面的 . : 原样输出（3.14、12:30）
+        // 没有组字时带上光标前的字：数字后面的 . 原样输出（3.14；, : 由 InputController 照微信输入法处理）
         if !view.active, preceding != 0 {
             return transition(msime_client_punctuation_with_context(handle, ascii, preceding))
         }
@@ -267,7 +260,7 @@ final class MsimeSession {
     /// 照水杉运行时的 caret_edge_candidate_shortcut：高亮在首选时 ← 移光标，→ 没到末尾移光标、
     /// 到了末尾选下一个；高亮不在首选时只移候选。
     private func arrow(backwards: Bool) -> Snapshot? {
-        guard view.active || pendingClosing != nil else { return snapshot(handled: false) }
+        guard view.active else { return snapshot(handled: false) }
         if !view.candidates.isEmpty, view.conversion.isEmpty {
             let edits = view.highlighted == 0 && (backwards || view.caretPosition < view.editingText.utf8.count)
             // 这一行最后一个再按 →：展开，高亮留在它上面（照微信，微信中间还停一下工具图标，WoType 没有）；
@@ -328,7 +321,7 @@ final class MsimeSession {
             self.raw = nil
             return commitPending ? commitText(raw.text) : command(.cancel)
         }
-        guard view.active || pendingClosing != nil else { return snapshot(handled: true) }
+        guard view.active else { return snapshot(handled: true) }
         return command(commitPending ? .finishOnFocusLoss : .cancel)
     }
 
@@ -339,8 +332,6 @@ final class MsimeSession {
         cancelCloud()
         // 换了输入框：上一个输入框的状态不带过来（水杉取得焦点时也会丢掉旧组字）
         if focused {
-            pendingClosing = nil
-            autoClosed = nil
             expanded = false
             navigated = false
             raw = nil
@@ -350,7 +341,7 @@ final class MsimeSession {
 
     // MARK: - 候选翻译
 
-    /// 不经过水杉上屏一段文字（候选翻译的译文）：先撤掉组字，挂着的后半个符号照样跟在后面送出。
+    /// 不经过水杉上屏一段文字（候选翻译的译文）：先撤掉组字。
     func commitText(_ text: String) -> Snapshot? {
         guard view.active else { return nil }
         cancelSettle()
@@ -363,7 +354,7 @@ final class MsimeSession {
         raw = nil
         // 两次上屏之间加空格要看上一次上屏是在哪个方案里出的：译文不是水杉出的，不拿它算
         lastCommitContext = nil
-        return snapshot(handled: true, commit: pairing(text, handled: true) ?? text)
+        return snapshot(handled: true, commit: text)
     }
 
     // MARK: - 中英文、大写锁定
@@ -374,7 +365,7 @@ final class MsimeSession {
             self.raw = nil
             return commitText(raw.text)
         }
-        guard view.active || pendingClosing != nil else { return snapshot(handled: true) }
+        guard view.active else { return snapshot(handled: true) }
         return command(.commitRaw)
     }
 
@@ -412,7 +403,7 @@ final class MsimeSession {
         return spaced
     }
 
-    // MARK: - 符号自动补全
+    // MARK: - 符号自动补全（照微信输入法）
 
     /// 补全的成对符号（照水杉的 MSIMEPunctuationPairs）
     private static let pairs = [
@@ -420,59 +411,19 @@ final class MsimeSession {
     ]
     /// 水杉的引号一开一合交替；补全时每按一次都是新的一对，后半个改回前半个
     private static let reopenings = ["”": "“", "’": "‘", "」": "「", "』": "『"]
-    /// 按哪个键会出这个后半个（跨过刚补上的后半个时用）
-    private static let closingKeys: [UInt8: String] = [
-        UInt8(ascii: ")"): "）", UInt8(ascii: "]"): "】", UInt8(ascii: ">"): "》",
-        UInt8(ascii: "\""): "”", UInt8(ascii: "'"): "’",
-    ]
 
-    /// 补上还没送出的后半个：留在组字区末尾、光标前面，下一次上屏时跟在后面一起送出。
-    private var pendingClosing: String?
-    /// 刚随上屏送出的后半个：紧接着再按出它时跨过去。
-    private var autoClosed: String?
-
-    /// 上屏的文字过一遍补全：送出挂着的后半个，看这次是不是打开了新的一对。
-    private func pairing(_ commit: String?, handled: Bool) -> String? {
-        let pending = pendingClosing
-        // 组字没了、也没上屏（Esc、把键交给应用）：挂着的后半个不能丢，单独送出
-        guard var text = commit else {
-            if let pending, !view.active {
-                pendingClosing = nil
-                return pending
-            }
-            return nil
+    /// 没在组字时按出一个左半边：返回要补的右半边（跟着一起上屏，光标退回两者中间，之后就是普通的字，
+    /// 括号里打多少字光标都在里面）。打拼音到一半按左括号是「候选 + 左括号」，不补（照微信）
+    private func pairing(_ commit: inout String) -> String? {
+        guard Settings.shared.config.autoPair, punctuationKey != nil, punctuationIdle, commit.count == 1 else { return nil }
+        if punctuationKey == UInt8(ascii: "\"") || punctuationKey == UInt8(ascii: "'"), let opening = Self.reopenings[commit] {
+            commit = opening
         }
-        guard Settings.shared.config.autoPair, !text.isEmpty else {
-            if let pending {
-                pendingClosing = nil
-                return text + pending
-            }
-            return text
+        // 书名号会嵌套（《 里面是〈）：补上的后半个引擎不知道，要告诉它这一对已经关上
+        if commit == "《" || commit == "〈" {
+            msime_client_string_free(msime_client_balance_paired_punctuation_after_auto_close(handle, UInt8(ascii: "<")))
         }
-        // 组字中按标点上屏的是「候选 + 标点」（nihao( → 你好（）：只看最后一个字
-        var mark = text
-        if punctuationKey != nil, let last = text.last {
-            mark = String(last)
-        }
-        var opened: String?
-        if pending == nil {
-            if let key = punctuationKey, key == UInt8(ascii: "\"") || key == UInt8(ascii: "'"),
-               let opening = Self.reopenings[mark] {
-                text = String(text.dropLast()) + opening
-                mark = opening
-            }
-            opened = Self.pairs[mark]
-            // 书名号会嵌套（《 里面是〈）：补上的后半个引擎不知道，要告诉它这一对已经关上
-            if opened != nil, mark == "《" || mark == "〈" {
-                msime_client_string_free(msime_client_balance_paired_punctuation_after_auto_close(handle, UInt8(ascii: "<")))
-            }
-        }
-        if let pending {
-            text += pending
-            autoClosed = pending
-        }
-        pendingClosing = opened
-        return text
+        return Self.pairs[commit]
     }
 
     // MARK: - 按宽度分行（照水杉 macOS 宿主的 LayoutAdaptiveCandidates）
@@ -1036,10 +987,14 @@ final class MsimeSession {
         if let text = output, transition.commitContext?.scriptConversion == true {
             output = Self.traditional(text)
         }
-        let commit = pairing(output, handled: transition.handled) ?? ""
+        var commit = output ?? ""
         // commit_cursor_suffix 是上屏文本末尾的一段，光标要退到它前面
-        return snapshot(handled: handled ?? transition.handled, commit: commit,
-                        caretBack: transition.commitCursorSuffix?.utf16.count ?? 0)
+        var caretBack = transition.commitCursorSuffix?.utf16.count ?? 0
+        if let closing = pairing(&commit) {
+            commit += closing
+            caretBack += closing.utf16.count
+        }
+        return snapshot(handled: handled ?? transition.handled, commit: commit, caretBack: caretBack)
     }
 
     /// 回 {..., view} 的调用（设每页个数回 {deferred, view}）。
@@ -1063,13 +1018,10 @@ final class MsimeSession {
     }
 
     private func snapshot(handled: Bool, commit: String = "", caretBack: Int = 0) -> Snapshot {
-        let tail = pendingClosing ?? ""
         if let raw {
-            var result = raw.snapshot(handled: handled, commit: commit)
-            result.tail = tail
-            return result
+            return raw.snapshot(handled: handled, commit: commit)
         }
-        let mode: Snapshot.Mode = expanded ? .grid : (view.active || !tail.isEmpty ? .list : .idle)
+        let mode: Snapshot.Mode = expanded ? .grid : (view.active ? .list : .idle)
         var candidates = view.visible
         var first = candidates.first?.id.index ?? 0
         var cursor = candidates.firstIndex(where: \.highlighted) ?? 0
@@ -1124,7 +1076,6 @@ final class MsimeSession {
             },
             caretBack: caretBack
         )
-        result.tail = tail
         result.rows = gridRowCounts
         result.spans = gridColumnSpans
         // 候选翻译翻的是「已经选好的那段 + 高亮的候选」；只在打拼音时（联想出来的候选不翻）
@@ -1137,6 +1088,13 @@ final class MsimeSession {
         if view.conversion.isEmpty {
             result.caret = String(view.preedit.unicodeScalars.prefix(view.preeditCaret)).utf16.count
         }
+        // 只打了一个 v、i、u：数字是要打进去的字，不画序号
+        result.numbered = !loneLetter
         return result
+    }
+
+    /// 组字区只有一个 v、i、u（不能做拼音开头的字母，见 RimeSession.loneLetter）
+    private var loneLetter: Bool {
+        raw == nil && (view.phrasePrefix ?? "").isEmpty && ["v", "i", "u"].contains(view.editingText.lowercased())
     }
 }

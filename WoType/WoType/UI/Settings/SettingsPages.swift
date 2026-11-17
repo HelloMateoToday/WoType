@@ -352,11 +352,11 @@ final class HabitsPage: SettingsPage {
             ]),
             SettingsKit.sectionTitle("标点和空格"),
             SettingsKit.card([
-                switchRow("数字后用英文标点", "12:00、3.14、2024/1/1 保持原样。", \.asciiPunctAfterDigit,
+                switchRow("数字后用英文标点", "3.14、2024/1/1 保持原样；1,000、12:00 打数字时自动换成英文。", \.asciiPunctAfterDigit,
                           "number", .systemGreen),
                 slash,
                 switchRow("符号自动补全", "输入左括号、左引号时自动补上右半边。", \.autoPair, "parentheses", .systemPurple,
-                          help: "（【《“‘ 都会补上右半边，打完里面的字一起送出。"),
+                          help: "（【《“‘ 都会补上右半边，光标停在中间，括号里打多少字都在里面（照微信输入法）。"),
                 switchRow("中英文之间加空格", "中文和英文、数字之间自动加一个空格。", \.spaceCJKLatin, "space", .systemTeal,
                           help: "比如「用 GitHub 管理代码，共 3 个」。"),
             ]),

@@ -5,12 +5,11 @@
 //  划词翻译（docs/16），两个功能分开开关，WoType 是当前输入法时才生效：
 //  - 翻译并替换（默认 ⌃⌥I）：只在输入框里。选中了就翻选中的，没选中就翻整个输入框，翻完换成译文。
 //    按键在 InputController.handle 里比对。读输入框先问 IMK（选区、全文），读不到再问辅助功能（AX）；
-//    写回之前再读一遍，内容变了就不替换，改成气泡显示译文。
-//  - 翻译并显示（默认 ⌃⌥T）：任何地方选中的文字（网页、PDF 也行），结果显示在带小三角的气泡里（TranslationPanel）。
+//    写回之前再读一遍，内容变了就不替换，改成气泡显示译文。翻译中在选中文字下面转圈（ModeToast，和中英切换提示同一个方块）。
+//  - 翻译并显示（默认 ⌃⌥T）：任何地方选中的文字（网页、PDF 也行），结果显示在翻译窗口里（TranslationWindow，照 Easydict）。
 //    光标不在输入框里时输入法收不到按键，所以它用 KeyboardShortcuts 注册的全局热键，
 //    只在开关开着、WoType 是当前输入法时注册（切到别的输入法就取消，按键还给应用）。
-//    选中的文字先问辅助功能，读不到再模拟 ⌘C 从剪贴板拿（拿完把剪贴板还原）。
-//  翻译中在选中文字下面转圈（ModeToast，和中英切换提示同一个方块）。
+//    选中的文字怎么读见 SelectedText（不给浏览器开辅助功能）。
 //
 //  KeyboardShortcuts 2.4.0 存快捷键时（包括第一次用到名字时存默认值）就会注册 Carbon 全局热键，
 //  所以每次存完都要 shortcutsChanged()：翻译并替换的取消注册（不然按键到不了输入法），翻译并显示的按上面的规矩重新定。
@@ -53,6 +52,10 @@ final class SelectionTranslation {
     }
 
     private var task: Task<Void, Never>?
+    /// 翻译并显示正在读选中的文字
+    private var showTask: Task<Void, Never>?
+    /// 翻译并显示的全局热键现在注册着没有（nil：还没定过）。输入源变了的通知很多，没变就不重新注册
+    private var showHotKeyOn: Bool?
 
     private init() {
         // 第一次用到名字时库会存默认值、顺手注册全局热键
@@ -70,32 +73,23 @@ final class SelectionTranslation {
         NotificationCenter.default.addObserver(forName: Settings.didChange, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.updateShowHotKey() }
         }
-        // 浏览器启动、切到前台时打开它的辅助功能（翻译并显示开着才做），之后加载的网页才能拿到选中文字的位置
-        let workspace = NSWorkspace.shared.notificationCenter
-        for name in [NSWorkspace.didLaunchApplicationNotification, NSWorkspace.didActivateApplicationNotification] {
-            workspace.addObserver(forName: name, object: nil, queue: .main) { note in
-                guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
-                MainActor.assumeIsolated {
-                    guard Settings.shared.config.selectionShow, AXIsProcessTrusted() else { return }
-                    SelectedText.enableAccessibility(app)
-                }
-            }
-        }
         updateShowHotKey()
     }
 
     /// 设置页录了快捷键以后调（库存的时候注册了全局热键）
     func shortcutsChanged() {
         KeyboardShortcuts.disable(.translateReplace)
-        updateShowHotKey()
+        updateShowHotKey(force: true)
     }
 
-    /// 翻译并显示的全局热键：开关开着、WoType 是当前输入法才注册
-    private func updateShowHotKey() {
+    /// 翻译并显示的全局热键：开关开着、WoType 是当前输入法才注册。
+    /// force：库存快捷键时自己注册了热键，状态没变也要重新定一遍
+    private func updateShowHotKey(force: Bool = false) {
         let on = Settings.shared.config.selectionShow && Self.woTypeSelected()
+        guard force || on != showHotKeyOn else { return }
+        showHotKeyOn = on
         if on {
             KeyboardShortcuts.enable(.translateShow)
-            SelectedText.enableBrowsers()
         } else {
             KeyboardShortcuts.disable(.translateShow)
         }
@@ -202,26 +196,40 @@ final class SelectionTranslation {
 
     // MARK: - 翻译并显示
 
-    /// 全局热键：读当前应用里选中的文字 → 转圈 → 翻好了在气泡里显示译文
+    /// 全局热键：读当前应用里选中的文字，交给翻译窗口（它问各个翻译源）
     private func translateAndShowAnywhere() {
         Log.input.info("划词翻译：翻译并显示的快捷键按下了")
         guard Settings.shared.config.selectionShow else { return }
-        Task {
-            guard let picked = await SelectedText.read(inputField: Self.pickFromInputField) else {
+        close()
+        showTask?.cancel()
+        // 选中的文字在输入框里（能替换）：问连着的输入框，不问辅助功能（Chrome 一问就开辅助功能树）
+        let editable = Self.selectionEditable()
+        showTask = Task {
+            let text = await SelectedText.read(inputField: Self.pickFromInputField)
+            guard !Task.isCancelled else { return }
+            if let text {
+                TranslationWindow.shared.translate(text, editable: editable)
+            } else if Settings.shared.config.selectionOpenEmpty {
+                Log.input.info("划词翻译：没读到选中的文字，打开空的翻译窗口")
+                TranslationWindow.shared.showEmpty()
+            } else {
+                // 设置里没开「没选中文字时也打开」：什么都不做
                 Log.input.info("划词翻译：没读到选中的文字")
-                TranslationPanel.shared.showMessage("没有选中文字", near: SelectedText.mouseAnchor())
-                return
-            }
-            translate(picked.text, near: picked.anchor) { result in
-                ModeToast.shared.hideLoading(animated: false)
-                TranslationPanel.shared.show(result.text, near: picked.anchor)
             }
         }
     }
 
-    /// 翻译并显示：光标在前台应用的输入框里、WoType 正连着它、里面选着文字时，从输入框读文字和位置
-    /// （Sublime Text 辅助功能什么都不给，只能这样拿到选区的位置）
-    private static func pickFromInputField() -> SelectedText.Picked? {
+    /// 选中的文字是不是在输入框里：WoType 正连着前台应用的输入框，里面有选区（翻译窗口据此显示「替换」按钮）
+    private static func selectionEditable() -> Bool {
+        guard let client = InputController.current?.client(),
+              client.bundleIdentifier() == NSWorkspace.shared.frontmostApplication?.bundleIdentifier else { return false }
+        let selection = client.selectedRange()
+        return selection.location != NSNotFound && selection.length > 0
+    }
+
+    /// 翻译并显示：光标在前台应用的输入框里、WoType 正连着它、里面选着文字时，从输入框读
+    /// （Sublime Text 辅助功能什么都不给，只能这样读）
+    private static func pickFromInputField() -> String? {
         guard let client = InputController.current?.client() else {
             Log.input.info("划词翻译：没有连着的输入框")
             return nil
@@ -236,10 +244,10 @@ final class SelectionTranslation {
             Log.input.info("划词翻译：输入框里没读到选中的文字（选区 \(String(describing: client.selectedRange()), privacy: .public)）")
             return nil
         }
-        return SelectedText.Picked(text: grab.text, anchor: anchor(client, grab))
+        return grab.text
     }
 
-    /// 两种都一样的部分：收起上一次的，在 anchor 下面转圈，翻好了交给 done（由它收起转圈），失败了气泡里写原因
+    /// 翻译并替换：收起上一次的，在 anchor 下面转圈，翻好了交给 done（由它收起转圈），失败了气泡里写原因
     private func translate(_ text: String, near anchor: NSRect, done: @escaping (SelectionTranslator.Result) -> Void) {
         close()
         let target = Self.target(for: text)
@@ -257,7 +265,8 @@ final class SelectionTranslation {
         }
     }
 
-    private static func target(for text: String) -> Language {
+    /// 翻成哪种语言（设置里的目标语言，开了智能方向时按原文换）
+    static func target(for text: String) -> Language {
         let config = Settings.shared.config
         return SelectionTranslator.direction(for: text, target: Language(config.selectionTarget),
                                              smart: config.selectionSmartDirection)

@@ -26,3 +26,16 @@ librime-octagram（BSD-3-Clause）和 OpenCC（Apache-2.0）的许可证水杉�
 
 Creative Commons Attribution 4.0 International 全文（取自 rime-wanxiang 仓库的 LICENSE）。`scripts/copy-data.sh`
 把它接在万象方案的出处说明后面，生成 `rime-wanxiang-scheme-CC-BY-4.0.txt`。
+
+## easydict/
+
+划词翻译的翻译窗口（`UI/TranslationWindow*.swift`，docs/16）照 tisfeng/Easydict 的查询窗口做的界面
+（布局、尺寸、配色参考它的 EZQueryView、EZResultView 和 NSColor+MyColors），标题栏的图钉图片
+（`Assets.xcassets/Titlebar`）取自它的 `Easydict/App/Assets.xcassets/titlebar/new_pin_*`。
+Easydict 是 GPL-3.0，`Easydict-GPL-3.0.txt` 是它仓库 LICENSE 的原文（`b86e3964`，2026-11-17）。
+
+## lucide/
+
+翻译窗口的按钮图标（`Assets.xcassets/Lucide`）取自 lucide-icons/lucide：brush-cleaning、volume-2、circle-pause、copy、
+check、log-in、corner-down-left、chevron-down、rotate-cw、arrow-right-left、ban、circle-stop、info。Lucide 是 ISC；其中 check、chevron-down、info
+源自 Feather（MIT，Cole Bemis），两份许可都在同一个 LICENSE 里。`Lucide-ISC.txt` 是它仓库 LICENSE 的原文（`f8feea7a`，2026-11-17）。

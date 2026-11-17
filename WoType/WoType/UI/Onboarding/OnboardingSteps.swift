@@ -92,6 +92,7 @@ final class OnboardingStepView: NSView {
         practice?.stop()
         translateTask?.cancel()
         TranslationPanel.shared.hide()
+        TranslationWindow.shared.hide()
         ModeToast.shared.hideLoading(animated: false)
     }
 
@@ -151,7 +152,7 @@ final class OnboardingStepView: NSView {
         case .typing:
             ("试试打字和候选翻译", "在下面打 nihao，候选出来后单按 {control}，高亮的候选翻成英文，再按 {return} 上屏译文。")
         case .selectionShow:
-            ("翻译并显示", "选中任何地方的文字，按 \(showToken)，译文显示在旁边。网页、PDF 里的字也行。")
+            ("翻译并显示", "选中任何地方的文字，按 \(showToken)，译文显示在翻译窗口里。网页、PDF 里的字也行。")
         case .selectionReplace:
             ("翻译并替换", "在输入框里按 \(replaceToken)，选中的文字（没选就是整个输入框）直接换成译文。")
         case .voice:
@@ -373,7 +374,7 @@ final class OnboardingStepView: NSView {
         self.checklist = checklist
         let hint = makeHint()
         let toggle = SettingsKit.card([SettingsKit.row(
-            title: "翻译并显示", detail: "任何地方选中的文字，译文显示在旁边。",
+            title: "翻译并显示", detail: "任何地方选中的文字，译文显示在翻译窗口里。",
             icon: SettingsIcon(symbol: "text.bubble.fill", color: .systemBlue),
             accessory: SettingSwitch(isOn: Settings.shared.config.selectionShow) { [weak self] on in
                 Settings.shared.update { $0.selectionShow = on }
@@ -428,17 +429,14 @@ final class OnboardingStepView: NSView {
         guard let textView = window?.firstResponder as? NSTextView else { return }
         let range = textView.selectedRange()
         let text = (textView.string as NSString).substring(with: range).trimmingCharacters(in: .whitespacesAndNewlines)
-        let anchor = textView.firstRect(forCharacterRange: range, actualRange: nil)
         guard !text.isEmpty else {
-            TranslationPanel.shared.showMessage("没有选中文字", near: anchor)
+            // 和快捷键一样：设置里开了「没选中文字时也打开」才打开空窗口
+            if Settings.shared.config.selectionOpenEmpty { TranslationWindow.shared.showEmpty() }
             return
         }
-        translate(text, near: anchor) { [weak self] result in
-            ModeToast.shared.hideLoading(animated: false)
-            TranslationPanel.shared.show(result, near: anchor)
-            self?.checklist?.check(0)
-            self?.showHint("")
-        }
+        TranslationWindow.shared.translate(text)
+        checklist?.check(0)
+        showHint("")
     }
 
     // MARK: - 7 翻译并替换
@@ -513,9 +511,7 @@ final class OnboardingStepView: NSView {
     private func translate(_ text: String, near anchor: NSRect, done: @escaping (String) -> Void) {
         translateTask?.cancel()
         TranslationPanel.shared.hide()
-        let config = Settings.shared.config
-        let target = SelectionTranslator.direction(for: text, target: Language(config.selectionTarget),
-                                                   smart: config.selectionSmartDirection)
+        let target = SelectionTranslation.target(for: text)
         ModeToast.shared.showLoading(near: anchor)
         translateTask = Task {
             do {

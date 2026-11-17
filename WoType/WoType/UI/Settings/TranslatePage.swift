@@ -3,7 +3,8 @@
 //  WoType
 //
 //  设置 › 翻译设置：候选翻译、划词翻译（docs/16）、语音翻译三组，各设各的「翻译成」「翻译引擎」，写法一样。
-//  划词翻译的「翻译并替换」「翻译并显示」各有开关和快捷键（默认都关，可以只开一个），下面一组两个功能共用的语言和引擎。
+//  划词翻译的「翻译并替换」「翻译并显示」各有开关和快捷键（默认都关，可以只开一个）；翻译并显示的窗口问哪些翻译源
+//  （TranslationSourceList）；下面一组两个功能共用的语言，和翻译并替换用的引擎。
 //
 
 import Cocoa
@@ -20,6 +21,8 @@ final class TranslatePage: SettingsPage {
             SettingsKit.card(candidateRows()),
             SettingsKit.sectionTitle("划词翻译"),
             SettingsKit.card(selectionRows()),
+            SettingsKit.sectionTitle("翻译并显示的翻译源"),
+            TranslationSourceList(),
             SettingsKit.sectionTitle("划词翻译的语言"),
             SettingsKit.card(selectionLanguageRows()),
             SettingsKit.sectionTitle("语音翻译"),
@@ -82,9 +85,10 @@ final class TranslatePage: SettingsPage {
                             icon: SettingsIcon(symbol: "command", color: .systemGray),
                             accessory: recorder(.translateReplace, other: .translateShow, enabled: replace)),
             SettingsKit.row(
-                title: "翻译并显示", detail: "在选中的文字下面弹出译文，原文不动，网页、PDF 也行。",
-                help: "翻译时选中文字下面转圈，翻好了弹出译文。按任意键或点外面就收起。\n\n"
-                    + "选中的文字用辅助功能读；读不到时（有的应用、刚打开的网页）会替你按一次 ⌘C 复制，复制完把剪贴板还原。\n\n"
+                title: "翻译并显示", detail: "选中的文字用几个翻译源一起翻，结果显示在翻译窗口里，网页、PDF 也行。",
+                help: "窗口里能改原文（按回车重新翻译）、换语言、朗读、复制；选中的文字在输入框里时，「替换」把译文换掉它。"
+                    + "点外面或按 Esc 收起；点图钉钉住以后点外面不收起，再翻译时在原地换内容。可以拖边改宽。\n\n"
+                    + "选中的文字用辅助功能读；浏览器里和读不到时会替你按一次 ⌘C 复制，复制完把剪贴板还原。\n\n"
                     + Self.privacy,
                 icon: SettingsIcon(symbol: "text.bubble.fill", color: .systemTeal),
                 accessory: SettingSwitch(isOn: show) { [weak self] on in self?.update { $0.selectionShow = on } }),
@@ -92,7 +96,48 @@ final class TranslatePage: SettingsPage {
                             help: Self.shortcutHelp + "\n\n开着时这个快捷键归 WoType（切到别的输入法就还给应用）。",
                             icon: SettingsIcon(symbol: "command", color: .systemGray),
                             accessory: recorder(.translateShow, other: .translateReplace, enabled: show)),
+            SettingsKit.row(title: "没选中文字时也打开", detail: "没选中文字时按快捷键，也打开翻译窗口，自己输入文字再翻译。",
+                            icon: SettingsIcon(symbol: "character.cursor.ibeam", color: .systemGreen),
+                            accessory: openEmptySwitch(enabled: show)),
+            SettingsKit.row(title: "窗口位置", detail: "翻译窗口出现在哪。拖动窗口后，「上次的位置」就是拖到的地方。",
+                            icon: SettingsIcon(symbol: "macwindow", color: .systemBlue),
+                            accessory: windowPositionPopUp(enabled: show)),
+            SettingsKit.row(title: "窗口最大高度", detail: "翻译窗口最高占屏幕的多少，内容再多就在窗口里滚动。",
+                            icon: SettingsIcon(symbol: "arrow.up.and.down", color: .systemYellow),
+                            accessory: maxHeightPopUp(enabled: show)),
         ]
+    }
+
+    /// 默认关：没选中文字时按快捷键什么都不做
+    private func openEmptySwitch(enabled: Bool) -> NSView {
+        let toggle = SettingSwitch(isOn: config.selectionOpenEmpty) { [weak self] on in
+            self?.update { $0.selectionOpenEmpty = on }
+        }
+        toggle.isEnabled = enabled
+        return toggle
+    }
+
+    /// 照 Easydict 的 maxWindowHeightPercentage：20%～100%，默认 100%
+    private func maxHeightPopUp(enabled: Bool) -> NSView {
+        let percents = Array(stride(from: 100, through: 20, by: -10))
+        let popUp = SettingPopUp(items: percents.map { "\($0)%" },
+                                 selected: percents.firstIndex(of: config.selectionWindowMaxHeight) ?? 0) {
+            [weak self] index in self?.update { $0.selectionWindowMaxHeight = percents[index] }
+        }
+        popUp.isEnabled = enabled
+        popUp.widthAnchor.constraint(equalToConstant: SettingsKit.controlWidth).isActive = true
+        return popUp
+    }
+
+    private func windowPositionPopUp(enabled: Bool) -> NSView {
+        let positions = TranslationWindowPosition.allCases
+        let popUp = SettingPopUp(items: positions.map(\.title),
+                                 selected: positions.firstIndex(of: config.selectionWindowPosition) ?? 0) {
+            [weak self] index in self?.update { $0.selectionWindowPosition = positions[index] }
+        }
+        popUp.isEnabled = enabled
+        popUp.widthAnchor.constraint(equalToConstant: SettingsKit.controlWidth).isActive = true
+        return popUp
     }
 
     /// 录键框（录的时候它自己要求带 ⌃、⌥ 或 ⌘，也会提示和菜单、系统快捷键撞车）。
@@ -136,10 +181,12 @@ final class TranslatePage: SettingsPage {
             SettingsKit.row(title: "智能方向", detail: smartDetail,
                             help: "按文字判断原文是什么语言。认不出时照常翻成上面选的语言。",
                             icon: SettingsIcon(symbol: "arrow.triangle.swap", color: .systemGreen), accessory: smart),
-            SettingsKit.row(title: "翻译引擎", detail: detail,
-                            help: Self.machineHelp + "\n\nAI 模型：长句更通顺、会保留格式，慢一些。用你在「模型管理」里添加的模型和你自己的 API 密钥。",
-                            icon: SettingsIcon(symbol: "server.rack", color: selectionEngineWorks() || !enabled ? .systemGray : .systemRed),
-                            accessory: selectionEnginePopUp(enabled: enabled)),
+            SettingsKit.row(title: "替换用的翻译引擎", detail: detail,
+                            help: "「翻译并替换」用哪个引擎（「翻译并显示」用上面的翻译源，几个一起翻）。\n\n" + Self.machineHelp
+                                + "\n\nAI 模型：长句更通顺、会保留格式，慢一些。用你在「模型管理」里添加的模型和你自己的 API 密钥。",
+                            icon: SettingsIcon(symbol: "server.rack",
+                                               color: selectionEngineWorks() || !config.selectionReplace ? .systemGray : .systemRed),
+                            accessory: selectionEnginePopUp(enabled: config.selectionReplace)),
         ]
     }
 

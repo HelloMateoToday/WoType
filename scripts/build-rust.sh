@@ -22,8 +22,10 @@ unset SDKROOT MACOSX_DEPLOYMENT_TARGET LIBRARY_PATH
 # 水杉的依赖里有 C 代码（ring、SQLite），编译要找得到 macOS SDK 的头文件
 SDKROOT=$(xcrun --sdk macosx --show-sdk-path)
 export SDKROOT
-# 和 Xcode 工程的最低系统版本保持一致
-export MACOSX_DEPLOYMENT_TARGET=14.0
+# 不设 MACOSX_DEPLOYMENT_TARGET：它同时管着本机跑的 proc-macro 动态库，设成 13 及以上时
+# Xcode 27 的 ld（ld-27106）链出来的动态库 dyld 加载不了（mis-aligned LINKEDIT string pool），
+# 编译报 can't find crate for `zerofrom_derive` 之类（2026-11-17）。不设时 Rust 默认 11.0，
+# 比工程的 14.0 低，静态库照样链得进 App
 
 host=$(uname -m)
 case "$host" in

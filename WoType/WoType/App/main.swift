@@ -17,6 +17,11 @@ if CommandLine.arguments.contains("--register") {
                               select: CommandLine.arguments.contains("--select")))
 }
 
+// WoType --leave：当前输入法是 WoType 就切到 ABC 等（开发脚本结束旧进程之前用），做完就退出
+if CommandLine.arguments.contains("--leave") {
+    exit(InputSource.leave())
+}
+
 // WoType --rime-build <目录>：在线更新万象词库时用新词表编译词库，做完就退出（RimeLexiconUpdater）。
 // 编译峰值 1.1 GB，放在子进程里，内存不留在输入法进程（docs/22）
 if let flag = CommandLine.arguments.firstIndex(of: "--rime-build"), CommandLine.arguments.count > flag + 1 {

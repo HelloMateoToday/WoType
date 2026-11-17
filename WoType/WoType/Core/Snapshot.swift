@@ -50,8 +50,6 @@ struct Snapshot {
     let candidates: [Item]
     /// 上屏后光标要往左退几个字（快捷短语指定了光标位置）
     let caretBack: Int
-    /// 自动补上、还没送出的后半个符号：画在编辑区末尾、光标后面
-    var tail = ""
     /// 候选前画不画序号：万象的原样输入（网址、邮箱、v 模式）没展开时数字是要打进去的字，不是选词，不画（照微信）
     var numbered = true
     /// 光标在 remaining 里的位置（UTF-16）；nil 是在末尾
@@ -71,7 +69,7 @@ struct Snapshot {
     var withoutCommit: Snapshot {
         Snapshot(handled: handled, commit: "", mode: mode, selected: selected, remaining: remaining, horizontal: horizontal,
                  columns: columns, first: first, cursor: cursor, total: total, hasPrev: hasPrev, hasNext: hasNext,
-                 candidates: candidates, caretBack: 0, tail: tail, numbered: numbered, caret: caret, rows: rows, spans: spans,
+                 candidates: candidates, caretBack: 0, numbered: numbered, caret: caret, rows: rows, spans: spans,
                  highlight: highlight, highlightComplete: highlightComplete, translation: translation)
     }
 
@@ -79,7 +77,7 @@ struct Snapshot {
     var passedThrough: Snapshot {
         Snapshot(handled: false, commit: commit, mode: mode, selected: selected, remaining: remaining, horizontal: horizontal,
                  columns: columns, first: first, cursor: cursor, total: total, hasPrev: hasPrev, hasNext: hasNext,
-                 candidates: candidates, caretBack: caretBack, tail: tail, numbered: numbered, caret: caret, rows: rows,
+                 candidates: candidates, caretBack: caretBack, numbered: numbered, caret: caret, rows: rows,
                  spans: spans, highlight: highlight, highlightComplete: highlightComplete, translation: translation)
     }
 

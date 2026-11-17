@@ -97,24 +97,22 @@ final class RimeSession {
         commit = commit.replacingOccurrences(of: "\u{200B}\n", with: "\n")
         // 带光标位置的快捷短语：上屏后光标退到标记处
         var caretBack = RimeEngine.shared.loadedCustom?.cursors.first { commit.hasSuffix($0.key) }?.value ?? 0
-        if pair {
-            let before = commit.utf16.count
-            commit = pairing(commit)
-            if caretBack > 0 { caretBack += commit.utf16.count - before }
+        if pair, let closing = pairing(&commit) {
+            commit += closing
+            caretBack += closing.utf16.count
         }
         return finish(body(handled: handled, commit: commit), caretBack: caretBack)
     }
 
-    /// 补上光标后退、挂着的后半个（画在编辑区末尾）；只挂着后半个时候选窗还算开着
+    /// 补上光标后退
     private func finish(_ s: Snapshot, caretBack: Int) -> Snapshot {
-        let tail = pendingClosing ?? ""
         var result = Snapshot(
-            handled: s.handled, commit: s.commit, mode: s.mode == .idle && !tail.isEmpty ? .list : s.mode,
+            handled: s.handled, commit: s.commit, mode: s.mode,
             selected: s.selected, remaining: s.remaining, horizontal: s.horizontal, columns: s.columns, first: s.first,
             cursor: s.cursor, total: s.total, hasPrev: s.hasPrev, hasNext: s.hasNext, candidates: s.candidates,
             caretBack: caretBack)
-        result.tail = tail
-        result.numbered = s.numbered
+        // 只打了一个 v、i、u：数字是要打进去的字（见 key 里的 loneLetter），不画序号
+        result.numbered = s.numbered && !loneLetter
         result.caret = s.caret
         result.rows = s.rows
         result.spans = s.spans
@@ -219,63 +217,28 @@ final class RimeSession {
                  columns: 0, first: 0, cursor: 0, total: 0, hasPrev: false, hasNext: false, candidates: [], caretBack: 0)
     }
 
-    // MARK: - 符号自动补全（照 MsimeSession，它照的水杉）
+    // MARK: - 符号自动补全（照微信输入法，和 MsimeSession 一样）
 
-    /// 补全的成对符号（照水杉的 MSIMEPunctuationPairs）
+    /// 补全的成对符号
     private static let pairs = [
         "（": "）", "【": "】", "《": "》", "“": "”", "‘": "’", "〈": "〉", "「": "」", "『": "』", "〖": "〗",
     ]
     /// 万象的引号一开一合交替；补全时每按一次都是新的一对，后半个改回前半个
     private static let reopenings = ["”": "“", "’": "‘", "」": "「", "』": "『"]
-    /// 按哪个键会出这个后半个（跨过刚补上的后半个时用）
-    private static let closingKeys: [UInt32: String] = [0x29: "）", 0x5D: "】", 0x3E: "》", 0x22: "”", 0x27: "’"]
 
-    /// 补上还没送出的后半个：留在编辑区末尾、光标前面，下一次上屏时跟在后面一起送出
-    private var pendingClosing: String?
-    /// 刚随上屏送出的后半个：紧接着再按出它时跨过去
-    private var autoClosed: String?
     /// 正在处理的标点键（看它决定补不补、引号要不要改回前半个）
     private var punctuationKey: UInt32?
+    /// 这个标点键按下时没在组字（照微信：只有这时补；打拼音到一半按左括号是「候选 + 左括号」，不补）
+    private var punctuationIdle = false
 
-    /// 上屏的文字过一遍补全：送出挂着的后半个，看这次是不是打开了新的一对
-    private func pairing(_ commit: String) -> String {
-        let pending = pendingClosing
-        guard !commit.isEmpty else { return commit }
-        guard Settings.shared.config.autoPair else {
-            pendingClosing = nil
-            return commit + (pending ?? "")
+    /// 没在组字时按出一个左半边（（【《“‘…）：返回要补的右半边（跟着一起上屏，光标退回两者中间，
+    /// 之后就是普通的字，括号里打多少字光标都在里面）。引号改回前半个
+    private func pairing(_ commit: inout String) -> String? {
+        guard Settings.shared.config.autoPair, punctuationKey != nil, punctuationIdle, commit.count == 1 else { return nil }
+        if punctuationKey == 0x22 || punctuationKey == 0x27, let opening = Self.reopenings[commit] {
+            commit = opening
         }
-        var text = commit
-        // 组字中按标点上屏的是「候选 + 标点」（nihao( → 你好（）：只看最后一个字
-        var mark = text
-        if punctuationKey != nil, let last = text.last { mark = String(last) }
-        var opened: String?
-        if pending == nil {
-            if punctuationKey == 0x22 || punctuationKey == 0x27, let opening = Self.reopenings[mark] {
-                text = String(text.dropLast()) + opening
-                mark = opening
-            }
-            opened = Self.pairs[mark]
-        }
-        if let pending {
-            text += pending
-            autoClosed = pending
-        }
-        pendingClosing = opened
-        return text
-    }
-
-    /// 没在组字、只挂着后半个时 librime 交还给应用的键：可打印字符由这里上屏，后半个接着挂着；
-    /// 退格交给应用删左半个，后半个也不要了；别的键（回车、方向键……）先把后半个送出再交给应用
-    private func passWithPending(_ key: UInt32, modifiers: UInt32) -> Snapshot {
-        guard pendingClosing != nil else { return snapshot(handled: false) }
-        let plain = modifiers & UInt32(WOTYPE_MOD_CONTROL | WOTYPE_MOD_OPTION | WOTYPE_MOD_COMMAND) == 0
-        if plain, key >= 0x20, key < 0x7F, let scalar = Unicode.Scalar(key) {
-            return snapshot(handled: true, extraCommit: String(Character(scalar)), pair: false)
-        }
-        let pending = key == UInt32(WOTYPE_KEY_BACKSPACE) ? "" : pendingClosing ?? ""
-        pendingClosing = nil
-        return snapshot(handled: false, extraCommit: pending, pair: false)
+        return Self.pairs[commit]
     }
 
     /// 光标前的那个字（InputController 在新输入的第一个键前给的上文），只对紧接着的那一次按键有效
@@ -630,6 +593,13 @@ final class RimeSession {
         return moveHighlight(to: rowItems[current + 1].index)
     }
 
+    /// 组字区只有一个 v、i、u（不能做拼音开头的字母）：万象给的是一串英文候选（VA、vs、index、up…），
+    /// 这时数字不选词，原样接在后面（v5.0、v3.14、i7；照微信输入法，它这时只有大小写两三个候选，数字超出就原样接上）
+    private var loneLetter: Bool {
+        guard raw == nil, let input = api.pointee.get_input!(id).map({ String(cString: $0) }) else { return false }
+        return ["v", "i", "u"].contains(input.lowercased())
+    }
+
     /// 打了一半要上屏时的文字：已经选好的那段 + 剩下的原始字母（没选过就是整串原始字母）
     private func pendingText() -> String {
         guard let input = api.pointee.get_input!(id).map({ String(cString: $0) }), !input.isEmpty else { return "" }
@@ -652,8 +622,6 @@ extension RimeSession: PinyinSession {
     func key(_ key: UInt32, modifiers: UInt32, preceding: UInt32) -> Snapshot? {
         let before = contextBefore ?? (preceding != 0 ? Unicode.Scalar(preceding) : nil)
         contextBefore = nil
-        let skip = autoClosed
-        autoClosed = nil
         if raw != nil { return rawKey(key, modifiers: modifiers) }
         // ⇧⌫ / ⇧⌦：删掉高亮候选学到的记录（照 Rime 的 Shift+Delete）。学错的词（分段选拼出来的）就没了，
         // 词库里本来有的词只是回到原来的排位。万象的 auto_phrase.lua 会多删一个，下载时修补过（scripts/fetch-wanxiang.sh）
@@ -669,32 +637,23 @@ extension RimeSession: PinyinSession {
         guard noCommand else { return snapshot(handled: false) }
         // Tab：先上屏打了一半的（和切英文一样），再交给应用，表格、表单里照常跳格（照水杉）
         if key == UInt32(WOTYPE_KEY_TAB) {
-            guard !idle else { return passWithPending(key, modifiers: modifiers) }
-            let text = pendingText() + (pendingClosing ?? "")
+            guard !idle else { return snapshot(handled: false) }
+            let text = pendingText()
             endInput()
-            pendingClosing = nil
             api.pointee.clear_composition!(id)
             return snapshot(handled: false, extraCommit: text, pair: false)
         }
         // 大写锁定开着、没在组字时，大写字母交给应用（照水杉）
         if idle, modifiers & UInt32(WOTYPE_MOD_CAPSLOCK) != 0, modifiers & UInt32(WOTYPE_MOD_SHIFT) == 0,
            (0x41...0x5A).contains(key) {
-            return passWithPending(key, modifiers: modifiers)
+            return snapshot(handled: false)
         }
         if idle {
             let config = Settings.shared.config
-            // 紧跟在补上的后半个后面再按出同一个后半个：跨过去，不再出一个
-            if pendingClosing == nil, let skip, Self.closingKeys[key] == skip {
-                return snapshot(handled: true)
-            }
-            // 后半个还挂着时按出它：送出挂着的那个就是，不再多出一个
-            if let pending = pendingClosing, Self.closingKeys[key] == pending {
-                pendingClosing = nil
-                return snapshot(handled: true, extraCommit: pending, pair: false)
-            }
-            // 数字后面的 . : / 原样（3.14、12:30、2024/1/1），不转成中文标点、不进万象的 / 功能
-            if config.asciiPunctAfterDigit, [0x2E, 0x3A, 0x2F].contains(key), let before, ("0"..."9").contains(before) {
-                return passWithPending(key, modifiers: modifiers)
+            // 数字后面的 . / 原样（3.14、2024/1/1），不转成中文标点、不进万象的 / 功能。
+            // , : 由 InputController 照微信输入法处理（先出中文，后面接数字再换成英文）
+            if config.asciiPunctAfterDigit, [0x2E, 0x2F].contains(key), let before, ("0"..."9").contains(before) {
+                return snapshot(handled: false)
             }
             // 汉字后面打数字：由这里上屏，InputController 按 spacedCommit 补空格（数字 librime 不收，会直接交给应用）
             if config.spaceCJKLatin, (0x30...0x39).contains(key), let before, Self.isCJK(before) {
@@ -705,7 +664,9 @@ extension RimeSession: PinyinSession {
         // . 和 @ 也进原样输入（照旧万象：网址、邮箱，@ 后面补全邮箱后缀）
         let down = plain && (key == UInt32(WOTYPE_KEY_DOWN) || key == 0x3D)
         let up = plain && (key == UInt32(WOTYPE_KEY_UP) || key == 0x2D && (navigated || expanded))
-        if [0x2B, 0x2E, 0x40].contains(key) || key == 0x2D && !up, highlightedIndex != nil, case let base = pendingText(), !base.isEmpty {
+        let lone = plain && (0x30...0x39).contains(key) && loneLetter
+        if lone || [0x2B, 0x2E, 0x40].contains(key) || key == 0x2D && !up, highlightedIndex != nil || lone,
+           case let base = pendingText(), !base.isEmpty {
             raw = RawInput(base: base, symbol: Character(Unicode.Scalar(key)!))
             expanded = false
             return snapshot(handled: true)
@@ -735,11 +696,9 @@ extension RimeSession: PinyinSession {
         guard let sym = Self.keysym(key) else { return snapshot(handled: false) }
         let isPunctuation = key > 0x20 && key < 0x7F && !Unicode.Scalar(key)!.properties.isAlphabetic && !(0x30...0x39).contains(key)
         punctuationKey = isPunctuation ? key : nil
+        punctuationIdle = idle
         defer { punctuationKey = nil }
         let handled = api.pointee.process_key!(id, sym, Self.mask(modifiers)) != 0
-        if idle, !handled, pendingClosing != nil, api.pointee.get_input!(id).map({ $0.pointee == 0 }) ?? true {
-            return passWithPending(key, modifiers: modifiers)
-        }
         return snapshot(handled: handled)
     }
 
@@ -776,22 +735,15 @@ extension RimeSession: PinyinSession {
         return moveGrid(toRow: target)
     }
 
-    /// commitPending：打了一半的和挂着的后半个都上屏；否则（失去焦点）都丢掉
+    /// commitPending：打了一半的上屏；否则（失去焦点）丢掉
     func reset(commitPending: Bool) -> Snapshot? {
-        let text = commitPending ? (raw?.text ?? pendingText()) + (pendingClosing ?? "") : ""
+        let text = commitPending ? raw?.text ?? pendingText() : ""
         endInput()
-        pendingClosing = nil
         api.pointee.clear_composition!(id)
         return snapshot(handled: true, extraCommit: text, pair: false)
     }
 
-    /// 换了输入框：上一个输入框挂着的后半个不带过来
-    func setFocused(_ focused: Bool) {
-        if focused {
-            pendingClosing = nil
-            autoClosed = nil
-        }
-    }
+    func setFocused(_ focused: Bool) {}
 
     /// 要光标前的文字：判断数字后的标点、汉字和数字之间补空格
     var wantsContext: Bool { true }

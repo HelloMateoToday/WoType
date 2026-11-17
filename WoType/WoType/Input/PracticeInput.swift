@@ -331,6 +331,11 @@ final class PracticeInputController {
         if !snapshot.commit.isEmpty {
             // 有编辑区时换掉编辑区（拼音上屏不经过 client，免得算成语音插入）
             textView.insertText(snapshot.commit, replacementRange: notFound)
+            // 补上的右括号、带光标位置的快捷短语：光标退回去
+            let selection = textView.selectedRange()
+            if snapshot.caretBack > 0, selection.location >= snapshot.caretBack {
+                textView.setSelectedRange(NSRange(location: selection.location - snapshot.caretBack, length: 0))
+            }
             onEvent?(.committed(snapshot.commit))
         }
         guard snapshot.mode != .idle else {
@@ -350,9 +355,6 @@ final class PracticeInputController {
         ]))
         let caret = (snapshot.selected as NSString).length
             + min(snapshot.caret ?? Int.max, (snapshot.remaining as NSString).length)
-        marked.append(NSAttributedString(string: snapshot.tail, attributes: [
-            .underlineStyle: NSUnderlineStyle.single.rawValue,
-        ]))
         textView.setMarkedText(marked, selectedRange: NSRange(location: caret, length: 0), replacementRange: notFound)
         if snapshot.candidates.isEmpty {
             CandidatePanel.shared.hide()

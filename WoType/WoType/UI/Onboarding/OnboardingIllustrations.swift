@@ -432,13 +432,25 @@ final class EngineDemo: NSView, OnboardingDemo {
 
 // MARK: - 划词翻译
 
-/// 翻译并显示：一段字被选中，⌃⌥T 依次按下，下面弹出译文气泡。
+/// 翻译并显示：一段字被选中，⌃⌥T 依次按下，右边出现翻译窗口（照 TranslationWindow 缩小）：
+/// 两张卡片先转加载点，微软翻译整段出来，DeepSeek 一个字一个字打出来，打完才出按钮。
 final class SelectionDemo: ScriptedDemo {
 
     private var highlighted = false
-    private var bubble = false
+    /// 翻译窗口打开的时刻（CACurrentMediaTime）；nil 是没开
+    private var openedAt: CFTimeInterval?
+    private var link: CADisplayLink?
     private let combo = PressedCombo(KeyCaps.keys(for: .init(.t, modifiers: [.control, .option])))
-    private let label = caption("选中文字，按 \(OnboardingStepView.showToken)，译文显示在旁边")
+    private let label = caption("选中文字，按 \(OnboardingStepView.showToken)，译文显示在翻译窗口里")
+
+    /// 卡片：名字、译文、打开后多久出结果、AI 每秒打几个字（nil 是整段出来）
+    private static let cards: [(name: String, ai: Bool, text: String, at: Double, speed: Double?)] = [
+        ("DeepSeek", true, "敏捷的棕色狐狸", 0.9, 9),
+        ("微软翻译", false, "快速的棕色狐狸", 0.45, nil),
+    ]
+    private static let tail = 3.0
+    /// 打完字、按钮也出来以后就不用再逐帧画
+    private static let settled = 3.0
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -446,7 +458,8 @@ final class SelectionDemo: ScriptedDemo {
         addSubview(label)
         NSLayoutConstraint.activate([
             combo.centerXAnchor.constraint(equalTo: centerXAnchor),
-            combo.centerYAnchor.constraint(equalTo: centerYAnchor, constant: 60),
+            // 翻译窗口展开后最高到卡片下面约 110，键帽往下让开
+            combo.centerYAnchor.constraint(equalTo: centerYAnchor, constant: 150),
             label.centerXAnchor.constraint(equalTo: centerXAnchor),
             label.topAnchor.constraint(equalTo: combo.bottomAnchor, constant: 28),
         ])
@@ -454,22 +467,46 @@ final class SelectionDemo: ScriptedDemo {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    override var beats: Int { 16 }
+    override var beats: Int { 20 }
     override var interval: TimeInterval { 0.3 }
 
     override func show(beat: Int) {
-        let wasShown = bubble
         highlighted = beat >= 2
-        // 第 4、5、6 拍依次按下 ⌃ ⌥ T，第 8 拍松开、气泡出来
+        // 第 4、5、6 拍依次按下 ⌃ ⌥ T，第 8 拍松开、翻译窗口出来，停到第 19 拍
         combo.press(beat >= 4 && beat < 8 ? min(beat - 3, 3) : 0)
-        bubble = beat >= 8
-        if bubble, !wasShown, !OnboardingMotion.reduced, let layer {
-            let fade = CATransition()
-            fade.type = .fade
-            fade.duration = 0.2
-            layer.add(fade, forKey: "fade")
+        if beat >= 8 {
+            if openedAt == nil {
+                // 减弱动态效果时直接画打完的样子
+                openedAt = OnboardingMotion.reduced ? CACurrentMediaTime() - 99 : CACurrentMediaTime()
+                startLink()
+            }
+        } else {
+            openedAt = nil
+            stopLink()
         }
         needsDisplay = true
+    }
+
+    override func stop() {
+        super.stop()
+        stopLink()
+    }
+
+    private func startLink() {
+        guard link == nil, !OnboardingMotion.reduced else { return }
+        let link = displayLink(target: self, selector: #selector(tick))
+        link.add(to: .main, forMode: .common)
+        self.link = link
+    }
+
+    private func stopLink() {
+        link?.invalidate()
+        link = nil
+    }
+
+    @objc private func tick() {
+        needsDisplay = true
+        if let openedAt, CACurrentMediaTime() - openedAt > Self.settled { stopLink() }
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -484,25 +521,146 @@ final class SelectionDemo: ScriptedDemo {
             text.addAttribute(.backgroundColor, value: NSColor.selectedTextBackgroundColor, range: span)
         }
         text.draw(with: card.insetBy(dx: 18, dy: 20), options: [.usesLineFragmentOrigin])
-        guard bubble else { return }
-        // 气泡：圆角框加一个小三角，指着选中的字
-        let box = NSRect(x: card.minX + 40, y: card.minY + 64, width: 180, height: 42)
-        let path = NSBezierPath(roundedRect: box, xRadius: 9, yRadius: 9)
-        path.move(to: NSPoint(x: box.minX + 26, y: box.minY))
-        path.line(to: NSPoint(x: box.minX + 34, y: box.minY - 8))
-        path.line(to: NSPoint(x: box.minX + 42, y: box.minY))
-        path.close()
+        guard let openedAt else { return }
+        drawWindow(since: CACurrentMediaTime() - openedAt, top: card.minY + 46)
+    }
+
+    /// 缩小的翻译窗口：贴右边，压住卡片右半边（选中的字露在左边）
+    private func drawWindow(since: Double, top: CGFloat) {
+        func ease(_ v: Double) -> CGFloat { CGFloat(1 - pow(1 - min(max(v, 0), 1), 3)) }
+        let style = TranslationStyle.self
+        let width: CGFloat = 214, margin: CGFloat = 6, gap: CGFloat = 4, inner = width - 12
+        let bodyFont = NSFont.systemFont(ofSize: 11.5)
+        let line: CGFloat = 16
+        // 每张卡片：显示到第几个字、加载点、正文高（第一个字出来时 0.25 秒长出来）、按钮
+        let states = Self.cards.map { card -> (shown: Double, loading: Bool, body: CGFloat, toolbar: CGFloat) in
+            let local = since - card.at
+            guard local >= 0 else { return (0, true, 0, 0) }
+            let count = Double(card.text.count)
+            let shown = card.speed.map { min(local * $0, count + Self.tail) } ?? count
+            let done = card.at + (card.speed.map { (count + Self.tail) / $0 } ?? 0)
+            let toolbar = since < done ? 0 : ease((since - done) / 0.25)
+            return (shown, card.speed != nil && since < done, (line + 10) * ease(local / 0.25) + 18 * toolbar, toolbar)
+        }
+        let queryHeight: CGFloat = 46
+        let height = 22 + queryHeight + gap + 22 + states.reduce(0) { $0 + gap + 20 + $1.body } + margin
+        let frame = NSRect(x: bounds.maxX - 16 - width, y: top, width: width, height: height)
+
+        NSGraphicsContext.saveGraphicsState()
+        let appear = ease(since / 0.15)
+        if let context = NSGraphicsContext.current?.cgContext {
+            context.setAlpha(appear)
+            // 从 97% 放大
+            let scale = 0.97 + 0.03 * appear
+            context.translateBy(x: frame.midX, y: frame.minY + 40)
+            context.scaleBy(x: scale, y: scale)
+            context.translateBy(x: -frame.midX, y: -(frame.minY + 40))
+        }
         let shadow = NSShadow()
-        shadow.shadowBlurRadius = 12
-        shadow.shadowOffset = NSSize(width: 0, height: -3)
-        shadow.shadowColor = NSColor.black.withAlphaComponent(0.2)
+        shadow.shadowBlurRadius = 16
+        shadow.shadowOffset = NSSize(width: 0, height: -5)
+        shadow.shadowColor = NSColor.black.withAlphaComponent(0.18)
         NSGraphicsContext.saveGraphicsState()
         shadow.set()
-        NSColor.windowBackgroundColor.setFill()
-        path.fill()
+        style.windowBackground.setFill()
+        NSBezierPath(roundedRect: frame, xRadius: 10, yRadius: 10).fill()
         NSGraphicsContext.restoreGraphicsState()
-        ("敏捷的棕色狐狸" as NSString).draw(at: NSPoint(x: box.minX + 14, y: box.minY + 11),
-                                    withAttributes: [.font: font, .foregroundColor: NSColor.labelColor])
+
+        // 标题栏：图钉、齿轮
+        Self.icon("pin", size: 11, at: NSPoint(x: frame.minX + 13, y: frame.minY + 11))
+        Self.icon("gearshape.fill", size: 11, at: NSPoint(x: frame.maxX - 14, y: frame.minY + 11))
+
+        let left = frame.minX + margin
+        var y = frame.minY + 22
+        func box(_ height: CGFloat) {
+            style.cardBackground.setFill()
+            NSBezierPath(roundedRect: NSRect(x: left, y: y, width: inner, height: height), xRadius: 6, yRadius: 6).fill()
+        }
+        let textAttributes: [NSAttributedString.Key: Any] = [.font: bodyFont, .foregroundColor: style.text]
+        // 原文框
+        box(queryHeight)
+        ("quick brown fox" as NSString).draw(at: NSPoint(x: left + 8, y: y + 6), withAttributes: textAttributes)
+        Self.lucide("volume-2", at: NSPoint(x: left + 12, y: y + queryHeight - 11))
+        Self.lucide("copy", at: NSPoint(x: left + 28, y: y + queryHeight - 11))
+        Self.lucide("corner-down-left", at: NSPoint(x: left + inner - 12, y: y + queryHeight - 11))
+        y += queryHeight + gap
+        // 语言栏
+        box(22)
+        let small: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 10), .foregroundColor: style.text]
+        for (string, x) in [("自动检测 ▾", inner / 4), ("⇄", inner / 2), ("自动选择 ▾", inner * 3 / 4)] {
+            let size = (string as NSString).size(withAttributes: small)
+            (string as NSString).draw(at: NSPoint(x: left + x - size.width / 2, y: y + (22 - size.height) / 2), withAttributes: small)
+        }
+        y += 22
+        // 卡片
+        for (card, state) in zip(Self.cards, states) {
+            y += gap
+            box(20 + state.body)
+            let name: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 10.5), .foregroundColor: style.text]
+            (card.name as NSString).draw(at: NSPoint(x: left + 8, y: y + 3.5), withAttributes: name)
+            var end = left + 8 + (card.name as NSString).size(withAttributes: name).width
+            if card.ai {
+                Self.lucide("info", size: 9, at: NSPoint(x: end + 7, y: y + 10))
+                end += 13
+            }
+            if state.loading || state.body == 0 { Self.dots(x: end + 6, y: y + 10, since: since) }
+            Self.lucide("chevron-down", size: 10, at: NSPoint(x: left + inner - 11, y: y + 10), color: style.text)
+            if state.body > 0 {
+                NSGraphicsContext.saveGraphicsState()
+                NSBezierPath(rect: NSRect(x: left, y: y + 20, width: inner, height: state.body)).addClip()
+                // 打字机：最新的 tail 个字从浅到深
+                let shown = NSMutableAttributedString()
+                for (k, character) in card.text.enumerated() {
+                    let alpha = card.speed == nil ? 1 : min(max((state.shown - Double(k)) / Self.tail, 0), 1)
+                    shown.append(NSAttributedString(string: String(character), attributes: [
+                        .font: bodyFont, .foregroundColor: style.text.withAlphaComponent(alpha),
+                    ]))
+                }
+                shown.draw(at: NSPoint(x: left + 8, y: y + 22))
+                if state.toolbar > 0 {
+                    let bottom = y + 20 + state.body - 10
+                    Self.lucide("volume-2", at: NSPoint(x: left + 12, y: bottom), alpha: state.toolbar)
+                    Self.lucide("copy", at: NSPoint(x: left + 28, y: bottom), alpha: state.toolbar)
+                }
+                NSGraphicsContext.restoreGraphicsState()
+            }
+            y += 20 + state.body
+        }
+        NSGraphicsContext.restoreGraphicsState()
+    }
+
+    /// 5 个灰点依次放大再缩回，一轮 1.28 秒（照 LoadingDots）
+    private static func dots(x: CGFloat, y: CGFloat, since: Double) {
+        TranslationStyle.loadingDot.setFill()
+        for i in 0..<5 {
+            let local = (since - Double(i) * 0.12).truncatingRemainder(dividingBy: 1.28)
+            let grow = local >= 0 && local < 0.5 ? sin(local / 0.5 * .pi) : 0
+            let r = 1.2 * (1 + grow)
+            NSBezierPath(ovalIn: NSRect(x: x + 2 + CGFloat(i) * 6.5 - r, y: y - r, width: r * 2, height: r * 2)).fill()
+        }
+    }
+
+    /// 以 center 为中心画一个 Lucide 图标（标题栏图标的灰）
+    private static func lucide(_ name: String, size: CGFloat = 10, at center: NSPoint,
+                               color: NSColor = TranslationStyle.titlebarIcon, alpha: CGFloat = 1) {
+        draw(TranslationStyle.lucide(name, size: size), at: center, color: color, alpha: alpha)
+    }
+
+    private static func icon(_ symbol: String, size: CGFloat, at center: NSPoint) {
+        draw(TranslationStyle.symbol(symbol, size: size), at: center, color: TranslationStyle.titlebarIcon, alpha: 1)
+    }
+
+    /// 模板图按 color 着色再画（翻转坐标里 respectFlipped）
+    private static func draw(_ image: NSImage, at center: NSPoint, color: NSColor, alpha: CGFloat) {
+        let size = image.size
+        let tinted = NSImage(size: size, flipped: false) { rect in
+            image.draw(in: rect)
+            color.set()
+            rect.fill(using: .sourceAtop)
+            return true
+        }
+        tinted.draw(in: NSRect(x: center.x - size.width / 2, y: center.y - size.height / 2, width: size.width, height: size.height),
+                    from: .zero, operation: .sourceOver, fraction: alpha, respectFlipped: true, hints: nil)
     }
 }
 

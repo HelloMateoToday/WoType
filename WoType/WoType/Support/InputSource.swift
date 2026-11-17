@@ -72,6 +72,33 @@ nonisolated enum InputSource {
         return TISSelectInputSource(layout) == noErr
     }
 
+    /// 当前输入法是 WoType 就切走（开发脚本装新版、结束旧进程之前：正用着时被结束，连着它的应用就断了，
+    /// 得重开才恢复）。先切 ABC 等英文键盘，没有就切别的已启用的输入法。返回进程退出码：切走了或本来就不是 0，切不走 1
+    static func leave() -> Int32 {
+        guard status().selected else {
+            print("当前输入法不是 WoType，不用切")
+            return 0
+        }
+        if selectKeyboardLayout() {
+            print("已从 WoType 切到 \(currentID())")
+            return 0
+        }
+        let filter = [kTISPropertyInputSourceCategory as String: kTISCategoryKeyboardInputSource as String,
+                      kTISPropertyInputSourceIsSelectCapable as String: true] as CFDictionary
+        let enabled = (TISCreateInputSourceList(filter, false)?.takeRetainedValue() as? [TISInputSource]) ?? []
+        guard let other = enabled.first(where: { !id(of: $0).hasPrefix(bundleID) }),
+              TISSelectInputSource(other) == noErr else {
+            print("切不走：没有别的已启用的输入法")
+            return 1
+        }
+        print("已从 WoType 切到 \(currentID())")
+        return 0
+    }
+
+    private static func currentID() -> String {
+        TISCopyCurrentKeyboardInputSource().map { id(of: $0.takeRetainedValue()) } ?? "?"
+    }
+
     private static func sources() -> [TISInputSource] {
         let filter = [kTISPropertyBundleID as String: bundleID] as CFDictionary
         return (TISCreateInputSourceList(filter, true)?.takeRetainedValue() as? [TISInputSource]) ?? []

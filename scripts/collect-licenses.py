@@ -8,6 +8,8 @@
 - 水杉 macOS 版随包的那几份许可证（照它的 platforms/macos/CMakeLists.txt），只取 WoType
   实际带上的部分：粤语、注音、笔画词库、本地翻译、离线语音这些 WoType 不带，不收；
 - licenses/librime/ 里的：万象引擎用的 librime 发布包和它静态链进去的库（发布包不带许可证，docs/22）；
+- licenses/easydict/ 里的：划词翻译窗口照 Easydict 做的界面（GPL-3.0，docs/16）；
+- licenses/lucide/ 里的：翻译窗口按钮用的 Lucide 图标（ISC，部分源自 Feather 的是 MIT）；
 - rust-crates.txt：链接进 libwotype_core.a 的每个 Rust crate 的名字、版本、许可和它自带的
   许可证全文（相同的全文只印一次）。水杉 macOS 版的第三方声明没有逐个列这些 crate，
   MIT、Apache-2.0 都要求随副本附上声明，所以这里自己生成。
@@ -143,8 +145,14 @@ def main():
     rime_licenses = sorted(os.listdir(librime))
     for name in rime_licenses:
         shutil.copyfile(os.path.join(librime, name), os.path.join(out, name))
+    icon_licenses = []
+    for folder in ("easydict", "lucide"):
+        path = os.path.join(repo, "licenses", folder)
+        for name in sorted(os.listdir(path)):
+            shutil.copyfile(os.path.join(path, name), os.path.join(out, name))
+            icon_licenses.append(name)
     crates, texts = write_crates(linked_packages(meta), os.path.join(out, "rust-crates.txt"))
-    count = len(MSIME_LICENSES) + len(rime_licenses) + 3
+    count = len(MSIME_LICENSES) + len(rime_licenses) + len(icon_licenses) + 3
     print(f"许可证 -> {out}（{count} 份，Rust crate {crates} 个、全文 {texts} 份）")
 
 

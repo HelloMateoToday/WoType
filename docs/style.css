@@ -20,6 +20,12 @@
   --key-bg: #ffffff;
   --key-text: #222222;
   --demo-caption: #1d1d1f;
+  /* 翻译窗口（TranslationStyle）：窗口底、卡片、正文、图标灰、「识别为」胶囊 */
+  --tw-window: #f9f9f9;
+  --tw-card: #efefef;
+  --tw-text: #252525;
+  --tw-icon: #797a7f;
+  --tw-tag: #e3e4e6;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -42,6 +48,11 @@
     --key-bg: #3a3a3c;
     --key-text: #f2f2f7;
     --demo-caption: #f2f2f7;
+    --tw-window: #232325;
+    --tw-card: #303132;
+    --tw-text: #e0e0e0;
+    --tw-icon: #c0c1c4;
+    --tw-tag: #3d3e3f;
   }
 }
 
@@ -74,6 +85,7 @@
 .demo-row .selected { background: var(--demo-selection); }
 .demo-row .marked { text-decoration: underline; text-decoration-color: var(--demo-caret); text-decoration-thickness: 1.6px; text-underline-offset: 5px; }
 .caret { display: inline-block; width: 1.6px; height: 20px; margin-left: 1px; vertical-align: -4px; background: var(--demo-caret); }
+.caret[hidden] { display: none; }
 .caret.blink { animation: blink 1.06s steps(1) infinite; }
 @keyframes blink { 50% { opacity: 0; } }
 
@@ -127,15 +139,37 @@
 }
 .demo-toast.show { opacity: 1; transform: none; }
 
-/* 划词翻译的气泡 */
-/* 演示区窄（三列卡片、手机）时译文折行 */
-.demo-bubble {
-  position: absolute; max-width: calc(100% - 48px); line-height: 22px; padding: 7px 15px; border-radius: 14px;
-  font-size: 15px; color: var(--panel-text); background: var(--panel-bg);
-  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.16), 0 0 0 0.6px rgba(0, 0, 0, 0.18);
-  opacity: 0; transform: translateY(-4px); transition: opacity 0.2s ease-out, transform 0.2s ease-out;
+/* 划词翻译的翻译窗口：贴右边，0.15 秒淡入、从 97% 放大（照 App） */
+.demo-tw {
+  position: absolute; top: 4px; right: 10px; width: 250px; padding: 0 6px 6px; border-radius: 10px;
+  font-size: 11px; line-height: 15px; color: var(--tw-text); background: var(--tw-window);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18), 0 0 0 0.6px rgba(0, 0, 0, 0.12);
+  opacity: 0; transform: scale(0.97); transform-origin: 50% 40px; transition: opacity 0.15s ease-out, transform 0.15s ease-out;
 }
-.demo-bubble.show { opacity: 1; transform: none; }
+.demo-tw.show { opacity: 1; transform: none; }
+.tw-bar { height: 20px; display: flex; align-items: center; justify-content: space-between; padding: 0 3px; color: var(--tw-icon); }
+.tw-box { background: var(--tw-card); border-radius: 6px; margin-top: 4px; overflow: hidden; }
+.tw-bar + .tw-box { margin-top: 0; }
+.tw-text { padding: 0 8px; }
+.tw-query .tw-text { padding-top: 6px; }
+.tw-tools { display: flex; align-items: center; gap: 6px; height: 18px; padding: 0 6px 2px; color: var(--tw-icon); }
+.tw-tools[hidden] { display: none; }
+.tw-tag { height: 12px; padding: 0 5px; border-radius: 6px; font-size: 8px; line-height: 12px; background: var(--tw-tag); }
+.tw-tag b { font-weight: 400; color: #007aff; }
+.tw-enter { margin-left: auto; display: flex; }
+.tw-lang { height: 20px; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; text-align: center; font-size: 10px; }
+.tw-head { height: 20px; display: flex; align-items: center; gap: 4px; padding: 0 6px 0 8px; font-size: 10.5px; }
+.tw-info { display: flex; color: var(--tw-icon); }
+.tw-chevron { margin-left: auto; display: flex; }
+/* 加载点：5 个灰点依次放大再缩回，一轮 1.28 秒（LoadingDots） */
+.tw-dots { display: flex; gap: 3.5px; margin-left: 3px; }
+.tw-dots[hidden] { display: none; }
+.tw-dots i { width: 3px; height: 3px; border-radius: 50%; background: var(--tw-icon); animation: tw-dot 1.28s linear infinite; }
+.tw-dots i:nth-child(2) { animation-delay: 0.12s; } .tw-dots i:nth-child(3) { animation-delay: 0.24s; }
+.tw-dots i:nth-child(4) { animation-delay: 0.36s; } .tw-dots i:nth-child(5) { animation-delay: 0.48s; }
+@keyframes tw-dot { 0%, 39%, 100% { transform: none; } 19.5% { transform: scale(2); } }
+.tw-body { height: 0; overflow: hidden; transition: height 0.25s cubic-bezier(0.2, 0.8, 0.3, 1); }
+.tw-body .tw-text { padding-bottom: 4px; }
 
 /* 语音胶囊：窗口底部正中 */
 .demo-capsule {
