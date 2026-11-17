@@ -160,6 +160,28 @@ its fallback pool and its cooldown rules. Each ported file names its
 FluentRead source. GPLv3 section 13 allows combining it with this AGPLv3 work.
 
 --------------------------------------------------------------------------------
+Easydict — https://github.com/tisfeng/Easydict
+License: GNU General Public License v3.0
+Commit: b86e39640d0d08c21a65f690813675a12dca6824 (2026-11-17)
+
+The selection translation window (WoType/WoType/UI/TranslationWindow*.swift)
+rewrites Easydict's query window in Swift/AppKit, following its layout, sizes,
+colors, timings, loading animation and result-card behavior (EZQueryView,
+EZResultView, EZLoadingAnimationView, NSColor+MyColors and related classes).
+The titlebar pin images (Assets.xcassets/Titlebar) are taken from Easydict's
+Easydict/App/Assets.xcassets/titlebar/new_pin_*. GPLv3 section 13 allows
+combining it with this AGPLv3 work. Full license: licenses/easydict.
+
+--------------------------------------------------------------------------------
+Lucide — https://github.com/lucide-icons/lucide
+Copyright (c) 2026 Lucide Icons and Contributors
+License: ISC (icons derived from Feather: MIT, Copyright (c) 2013-present Cole Bemis)
+Commit: f8feea7a (2026-11-17)
+
+Button icons of the translation window (Assets.xcassets/Lucide). Full license:
+licenses/lucide.
+
+--------------------------------------------------------------------------------
 Models (downloaded by the user, not distributed with WoType)
 Qwen3-ASR 1.7B (mlx-community/Qwen3-ASR-1.7B-8bit), Qwen3.5-2B
 (mlx-community/Qwen3.5-2B-4bit) — License: Apache-2.0

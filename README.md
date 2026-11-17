@@ -237,6 +237,8 @@ WoType 用到了下面这些项目的代码或数据，各自保留原来的版�
 | [WowType](https://github.com/Gloridust/WowType) | MIT OR Apache-2.0 | 项目最早从这个 Linux 输入法移植 |
 | [mlx-swift](https://github.com/ml-explore/mlx-swift)、[mlx-swift-lm](https://github.com/ml-explore/mlx-swift-lm)、[mlx-audio-swift](https://github.com/Blaizzy/mlx-audio-swift)、[swift-transformers](https://github.com/huggingface/swift-transformers) | MIT | 语音服务运行识别和润色模型 |
 | [KeyboardShortcuts](https://github.com/sindresorhus/KeyboardShortcuts) | MIT | 录制划词翻译的快捷键 |
+| [Easydict](https://github.com/tisfeng/Easydict) | GPL-3.0 | 划词翻译的翻译窗口：照它的查询窗口用 Swift / AppKit 重写（布局、尺寸、配色、动画、加载点、结果卡片的交互），标题栏的图钉图片取自它 |
+| [Lucide](https://github.com/lucide-icons/lucide) | ISC（部分图标源自 Feather，MIT） | 翻译窗口的按钮图标 |
 | Rust crate（[regex](https://github.com/rust-lang/regex) 等） | MIT / Apache-2.0 等 | Rust 核心的依赖，完整清单在编译时生成到 `Licenses/rust-crates.txt` |
 
 ### 数据和模型
@@ -283,7 +285,7 @@ WoType 用到了下面这些项目的代码或数据，各自保留原来的版�
 
 ## 许可证
 
-WoType 用 [GNU Affero General Public License v3.0 only](LICENSE)（AGPL-3.0-only）发布：语音输入照搬了 Arion（AGPL-3.0-only）的代码。水杉（GPL-3.0）、FluentRead（GPL-3.0）按 GPLv3 第 13 条和本作品合在一起；MIT、Apache-2.0、BSD 的代码和 CC BY 的数据保留原来的版权声明。
+WoType 用 [GNU Affero General Public License v3.0 only](LICENSE)（AGPL-3.0-only）发布：语音输入照搬了 Arion（AGPL-3.0-only）的代码。水杉（GPL-3.0）、FluentRead（GPL-3.0）、Easydict（GPL-3.0）按 GPLv3 第 13 条和本作品合在一起；MIT、Apache-2.0、BSD、ISC 的代码和图标、CC BY 的数据保留原来的版权声明。
 
 `Packages/FreeTranslate` 单独按 [GPL-3.0](Packages/FreeTranslate/LICENSE) 发布。
 
